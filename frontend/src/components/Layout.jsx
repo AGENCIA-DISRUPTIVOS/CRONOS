@@ -21,13 +21,13 @@ export function Layout({ children }) {
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-40 border-b border-border bg-[#0D131F]/85 backdrop-blur-xl">
-        <div className="mx-auto flex h-14 max-w-[1500px] items-center gap-6 px-4 sm:px-6">
+        <div className="mx-auto flex h-14 max-w-[1500px] items-center gap-3 px-3 sm:gap-6 sm:px-6">
           <div className="flex items-center gap-2.5" data-testid="app-logo">
             <span className="led inline-block h-2 w-2 rounded-full bg-mint" />
-            <span className="font-display text-base font-bold tracking-tight">Cronos</span>
+            <span className="hidden font-display text-base font-bold tracking-tight xs:inline sm:inline">Cronos</span>
             <span className="mono-label hidden sm:inline">Disruptivos</span>
           </div>
-          <nav className="flex items-center gap-1">
+          <nav className="flex items-center gap-0.5 sm:gap-1">
             {NAV.filter((n) => !n.admin || isAdmin).map(({ to, label, icon: Icon, id }) => (
               <NavLink
                 key={to}
@@ -35,7 +35,7 @@ export function Layout({ children }) {
                 end
                 data-testid={id}
                 className={({ isActive }) =>
-                  `flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  `flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium transition-colors sm:px-3 ${
                     isActive ? "bg-mint/10 text-mint" : "text-slate-400 hover:bg-surface-subtle hover:text-slate-100"
                   }`
                 }
@@ -45,10 +45,10 @@ export function Layout({ children }) {
               </NavLink>
             ))}
           </nav>
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex items-center gap-2 sm:gap-3">
             <span
               data-testid="user-role-badge"
-              className={`rounded-full border px-2 py-0.5 font-mono text-[11px] uppercase ${
+              className={`hidden rounded-full border px-2 py-0.5 font-mono text-[11px] uppercase sm:inline ${
                 isAdmin ? "border-mint/40 bg-mint/10 text-mint" : "border-border bg-surface-subtle text-slate-400"
               }`}
             >

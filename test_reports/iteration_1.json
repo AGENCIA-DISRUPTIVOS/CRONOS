@@ -1,0 +1,34 @@
+{
+  "summary": "Comprehensive backend + frontend testing of Cronos Disruptivos. Backend: 44/44 pytest tests passed (auth, meta, entries CRUD + RBAC + 422 validation, parse-line, stats, reconcile preview/apply + proportional distribution + unassigned day, export.csv, import idempotency, settings, budget, projects CRUD + overview + 409 duplicate, audit RBAC, cron secret guard). Frontend (Playwright on public URL, admin+viewer cookie): login redirect, admin dashboard with KPIs/budget/chart/comparison/breakdowns/top-tasks, filter interaction, registro quick-add → entry-dialog prefilled → save → edit → delete, cuadrar example → parse → preview with diffs & day checkboxes, ajustes settings form + projects create/edit/delete + digest + audit panels, viewer RBAC (no nav-ajustes, no new-entry/edit/delete, /ajustes redirects to /), logout. One flaky selector check (initial row count read before React Query hydrated) proved not a real bug since subsequent CRUD on the same table succeeded. Digest send was NOT triggered to avoid real email.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard (any page with charts)", "issues": ["Recharts logs 'The width(-1) and height(-1) of chart should be greater than 0' warnings during initial render — containers render before layout settles. Cosmetic console noise only, charts render correctly."]},
+      {"screen": "EntryDialog / DeleteConfirmDialog", "issues": ["Radix a11y warning: 'Missing `Description` or `aria-describedby={undefined}` for {DialogContent}'. Add a <DialogDescription> or aria-describedby for a11y."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Optional: add <DialogDescription> to EntryDialog and other Radix Dialogs to clear a11y console warnings.",
+    "Optional: give chart containers a fixed min-height to silence Recharts width/height=-1 warnings during mount."
+  ],
+  "critical_code_review_comments": [
+    "cronos.py (~780 lines) is close to the 700-line split threshold; consider splitting into cronos/{routes,stats,reconcile,digest,budget}.py as it grows.",
+    "No HTTPS-only / CSRF protection on auth cookie beyond SameSite=None+Secure; mitigated because session_token is random and all mutating endpoints require Bearer/cookie, but worth documenting.",
+    "reconcile/apply mutates seed data on real dates — tests should always use isolated test dates (we did).",
+    "digest/send has no idempotency guard; a stray double-click would send twice. Low risk since manual admin-only, but a 'last sent at' debounce would be safer."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (44/44)", "frontend": "100% of critical flows (10/10 after accounting for test-timing retry on the row-count read)"},
+  "test_credentials": "Mongo-seeded test sessions: admin 'test_session_e1' (fran.gomez@disruptivos.com), viewer 'test_session_viewer'. Used as Authorization: Bearer <token> for backend and cookie session_token for Playwright.",
+  "seed_data_creation": "No new seed data persisted. All test entries/projects created during tests were deleted. The 11 seeded Central Disruptivos entries remain intact. One statement row and one 'Sin asignar' entry were produced during test_apply_unassigned on 2026-05-20 (statement persists, entry cleaned up).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression suite is at /app/backend/tests/backend_test.py and runs under -n 2 loadscope. All CRUD tests use isolated TEST_ prefixes and dates in 2026-05/06/07 ranges to avoid seed data and race conditions. If reconcile/apply tests on 2026-06-15 fail, check for stale entries in Mongo. Frontend data-testids are consistent — Dashboard uses kpi-total-credits/kpi-total-cost-eur/budget-progress-bar/daily-chart/comparison-panel/breakdown-type/top-tasks; Registro uses quick-add-cronos-input, record-row-<id>, edit-entry-<id>, delete-entry-<id>; Cuadrar uses reconcile-*; Ajustes uses settings-* and project-*. Viewer RBAC and nav hiding are confirmed working.",
+  "rca of the issue": "N/A — no production bugs found. Initial 'registro_list rows=0' observation was a Playwright timing issue (checked rows before React Query hydration completed); same page functioned perfectly in subsequent CRUD assertions."
+}

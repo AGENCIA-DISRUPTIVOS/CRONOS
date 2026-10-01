@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { api, errMsg } from "@/lib/api";
 import { todayIso } from "@/lib/format";
 
@@ -45,6 +45,7 @@ export function EntryDialog({ open, onOpenChange, initial, meta, onSaved }) {
       <DialogContent className="max-w-2xl border-border bg-surface" data-testid="entry-dialog">
         <DialogHeader>
           <DialogTitle className="font-display">{isEdit ? "Editar entrada" : "Nueva entrada"}</DialogTitle>
+          <DialogDescription className="text-slate-500">Revisa los datos antes de guardar.</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="col-span-2 sm:col-span-4">

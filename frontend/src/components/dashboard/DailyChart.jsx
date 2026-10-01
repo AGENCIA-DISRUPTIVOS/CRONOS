@@ -8,8 +8,8 @@ export function DailyChart({ daily }) {
       {daily.length === 0 ? (
         <div className="flex h-56 items-center justify-center font-mono text-xs text-slate-600">sin datos</div>
       ) : (
-        <div className="h-56">
-          <ResponsiveContainer width="100%" height="100%">
+        <div className="h-56 min-h-[224px] min-w-0">
+          <ResponsiveContainer width="100%" height={224}>
             <AreaChart data={daily} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="mintFill" x1="0" y1="0" x2="0" y2="1">
