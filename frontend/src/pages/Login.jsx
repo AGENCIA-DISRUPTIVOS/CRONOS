@@ -16,6 +16,7 @@ export default function Login() {
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="panel rise w-full max-w-md p-8 shadow-[0_0_80px_-20px_rgba(0,255,191,0.35)]" data-testid="login-card">
+        <img src="/logo.png" alt="Emergent Labs by Disruptivos" className="mb-6 w-full max-w-[320px]" data-testid="app-logo-image" />
         <h1 className="font-display text-4xl font-bold tracking-tight">Cronos</h1>
         <p className="mt-2 text-sm leading-relaxed text-slate-400">
           Tiempo, mensajes y créditos de los agentes IA, tarea a tarea. Acceso restringido a cuentas{" "}

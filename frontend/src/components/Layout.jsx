@@ -23,9 +23,8 @@ export function Layout({ children }) {
       <header className="sticky top-0 z-40 border-b border-border bg-[#0D131F]/85 backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-[1500px] items-center gap-3 px-3 sm:gap-6 sm:px-6">
           <div className="flex items-center gap-2.5" data-testid="app-logo">
-            <span className="led inline-block h-2 w-2 rounded-full bg-mint" />
-            <span className="hidden font-display text-base font-bold tracking-tight xs:inline sm:inline">Cronos</span>
-            <span className="mono-label hidden sm:inline">Disruptivos</span>
+            <img src="/logo.png" alt="Emergent Labs by Disruptivos" className="h-6 w-auto sm:h-7" />
+            <span className="hidden font-display text-base font-bold tracking-tight md:inline">· Cronos</span>
           </div>
           <nav className="flex items-center gap-0.5 sm:gap-1">
             {NAV.filter((n) => !n.admin || isAdmin).map(({ to, label, icon: Icon, id }) => (
