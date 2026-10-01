@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { CheckCheck, Search } from "lucide-react";
+import { CheckCheck, Search, Upload } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { api, errMsg } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -19,12 +19,14 @@ export default function Cuadrar() {
   const [selected, setSelected] = useState({});
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [fileName, setFileName] = useState("");
+  const fileRef = useRef(null);
 
-  const runPreview = async () => {
+  const runPreview = async (source = text) => {
     setBusy(true);
     setResult(null);
     try {
-      const { data } = await api.post("/cronos/reconcile/preview", { text });
+      const { data } = await api.post("/cronos/reconcile/preview", { text: source });
       setPreview(data);
       setSelected(Object.fromEntries(data.days.map((d) => [d.date, true])));
     } catch (e) {
@@ -32,6 +34,20 @@ export default function Cuadrar() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const onFile = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const content = String(reader.result || "");
+      setText(content);
+      setFileName(file.name);
+      toast.success(`${file.name} cargado`);
+      runPreview(content);
+    };
+    reader.onerror = () => toast.error("No se pudo leer el archivo");
+    reader.readAsText(file, "utf-8");
   };
 
   const apply = async () => {
@@ -60,26 +76,40 @@ export default function Cuadrar() {
         <h1 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">Extracto real vs estimado</h1>
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <div className="panel p-4 lg:col-span-7">
-          <div className="mono-label mb-2">Pega el extracto de uso de Emergent</div>
+        <div
+          className="panel p-4 lg:col-span-7"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => { e.preventDefault(); onFile(e.dataTransfer.files?.[0]); }}
+          data-testid="reconcile-dropzone"
+        >
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="mono-label">Pega el extracto de uso de Emergent o sube el CSV</div>
+            {fileName && <span className="font-mono text-[11px] text-mint" data-testid="reconcile-file-name">{fileName}</span>}
+          </div>
           <textarea
             data-testid="reconcile-paste-textarea"
             className="field h-48 resize-y py-2 font-mono text-xs leading-relaxed"
             placeholder={EXAMPLE}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => { setText(e.target.value); setFileName(""); }}
           />
-          <div className="mt-3 flex items-center gap-3">
-            <button data-testid="reconcile-parse-button" className="btn-primary" onClick={runPreview} disabled={busy || !text.trim()}>
+          <input ref={fileRef} type="file" accept=".csv,.txt,text/csv,text/plain" className="hidden" data-testid="reconcile-file-input" onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ""; }} />
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button data-testid="reconcile-parse-button" className="btn-primary" onClick={() => runPreview()} disabled={busy || !text.trim()}>
               <Search size={14} /> Vista previa
             </button>
-            <button className="btn-secondary" onClick={() => setText(EXAMPLE)} data-testid="reconcile-example-button">Usar ejemplo</button>
+            <button data-testid="reconcile-upload-button" className="btn-secondary" onClick={() => fileRef.current?.click()} disabled={busy}>
+              <Upload size={14} /> Subir CSV
+            </button>
+            <button className="btn-secondary" onClick={() => { setText(EXAMPLE); setFileName(""); }} data-testid="reconcile-example-button">Usar ejemplo</button>
+            <span className="font-mono text-[11px] text-slate-600">también puedes arrastrar el archivo aquí</span>
           </div>
         </div>
         <div className="panel p-4 lg:col-span-5">
           <div className="mono-label mb-2">Cómo funciona</div>
           <ul className="space-y-1.5 text-sm leading-relaxed text-slate-400">
             <li>· Se detectan fechas <span className="font-mono text-slate-200">AAAA-MM-DD</span> o <span className="font-mono text-slate-200">DD/MM/AAAA</span> y la cifra de créditos de cada línea (las horas tipo 12:30 se ignoran).</li>
+            <li>· También puedes <span className="text-slate-200">subir el CSV</span> exportado de Emergent: se detectan las columnas de fecha y créditos por su cabecera (date/fecha, credits/créditos/coste…).</li>
             <li>· Se agrupa el gasto real por día y se compara con la suma estimada de las tareas de ese día.</li>
             <li>· Al aplicar, el gasto real se reparte <span className="text-slate-200">proporcionalmente</span> entre las tareas del día, que pasan a <span className="font-mono text-emerald-300">confirmado</span>. Si el día no tiene tareas se crea una entrada «Sin asignar».</li>
           </ul>
@@ -90,6 +120,7 @@ export default function Cuadrar() {
         <div className="panel overflow-x-auto" data-testid="reconcile-preview">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-3">
             <div className="font-mono text-xs text-slate-400">
+              <span className="mr-2 rounded-full border border-border px-1.5 py-px text-[10px] uppercase text-slate-500" data-testid="reconcile-format">{preview.format === "csv" ? "csv" : "texto"}</span>
               {preview.lines_parsed} líneas · {preview.days.length} días · real <span className="text-slate-100">{fmtCredits(preview.totals.real)}</span> vs estimado <span className="text-slate-100">{fmtCredits(preview.totals.estimated)}</span>
             </div>
             {isAdmin && (

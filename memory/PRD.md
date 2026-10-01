@@ -22,6 +22,7 @@ App web interna de Disruptivos para registrar y analizar tiempo, mensajes y cré
 - Fase 2 completa: € por crédito en KPIs/tabla/CSV; presupuesto mensual con barra, proyección y avisos 80%/100% (banner + email una vez por mes); proyectos con objetivos y semáforo; resumen semanal por email con botón «Enviar ahora»; auditoría visible en Ajustes.
 - Páginas: /login, / (panel), /registro, /cuadrar, /ajustes (admin).
 - Tests: iteration_1 → backend 44/44, frontend 100% flujos críticos.
+- (2026-10-01) Gráfica diaria con series de minutos y mensajes (eje derecho, toggles). Cuadre desde CSV subido/arrastrado: detección de columnas fecha/créditos por cabecera con fallback al parser de texto; `format` en la respuesta de preview.
 
 ## Backlog
 - P1: debounce en digest/send; paginación del registro si crece mucho.

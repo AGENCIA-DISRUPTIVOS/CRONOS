@@ -16,11 +16,7 @@ export default function Login() {
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="panel rise w-full max-w-md p-8 shadow-[0_0_80px_-20px_rgba(0,255,191,0.35)]" data-testid="login-card">
-        <div className="flex items-center gap-2.5">
-          <span className="led inline-block h-2.5 w-2.5 rounded-full bg-mint" />
-          <span className="mono-label">Disruptivos · interno</span>
-        </div>
-        <h1 className="mt-5 font-display text-4xl font-bold tracking-tight">Cronos</h1>
+        <h1 className="font-display text-4xl font-bold tracking-tight">Cronos</h1>
         <p className="mt-2 text-sm leading-relaxed text-slate-400">
           Tiempo, mensajes y créditos de los agentes IA, tarea a tarea. Acceso restringido a cuentas{" "}
           <span className="font-mono text-mint">@disruptivos.com</span>.

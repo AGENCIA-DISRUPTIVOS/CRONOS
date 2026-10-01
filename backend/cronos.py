@@ -235,7 +235,54 @@ CRED_RE = re.compile(r"(-?\d[\d.,]*)\s*(?:cr|cré|cred)", re.I)
 NUM_RE = re.compile(r"-?\d[\d.,]*")
 
 
+def _find_col(header: list, keys: tuple) -> Optional[int]:
+    for i, h in enumerate(header):
+        hn = strip_accents(str(h).strip().lower())
+        if any(k in hn for k in keys):
+            return i
+    return None
+
+
+def parse_statement_csv(text: str) -> Optional[dict]:
+    lines = [l for l in text.splitlines() if l.strip()]
+    if len(lines) < 2:
+        return None
+    try:
+        dialect = csv.Sniffer().sniff("\n".join(lines[:5]), delimiters=",;\t")
+    except csv.Error:
+        return None
+    rows = list(csv.reader(lines, dialect))
+    header = rows[0]
+    if len(header) < 2:
+        return None
+    cred_col = _find_col(header, ("credit", "credito", "creditos", "coste", "cost", "amount", "importe", "usage", "uso"))
+    date_col = _find_col(header, ("date", "fecha", "day", "dia", "time", "created", "timestamp"))
+    if cred_col is None:
+        return None
+    per_day: dict = {}
+    n = 0
+    for row in rows[1:]:
+        if len(row) <= cred_col:
+            continue
+        cells = [row[date_col]] if date_col is not None and date_col < len(row) else row
+        m = next((DATE_RE.search(c) for c in cells if DATE_RE.search(c)), None)
+        if not m:
+            continue
+        d = f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m.group(1) else f"{m.group(6)}-{m.group(5)}-{m.group(4)}"
+        num = parse_number(row[cred_col])
+        if num is None or not valid_date(d):
+            continue
+        per_day[d] = per_day.get(d, 0.0) + num
+        n += 1
+    if not per_day:
+        return None
+    return {"per_day": {k: round(v, 2) for k, v in per_day.items()}, "lines": n, "format": "csv"}
+
+
 def parse_statement(text: str) -> dict:
+    as_csv = parse_statement_csv(text)
+    if as_csv:
+        return as_csv
     per_day: dict = {}
     lines = 0
     for line in text.splitlines():
@@ -256,7 +303,7 @@ def parse_statement(text: str) -> dict:
             continue
         per_day[d] = per_day.get(d, 0.0) + num
         lines += 1
-    return {"per_day": {k: round(v, 2) for k, v in per_day.items()}, "lines": lines}
+    return {"per_day": {k: round(v, 2) for k, v in per_day.items()}, "lines": lines, "format": "text"}
 
 
 # ---------- budget ----------
@@ -627,7 +674,7 @@ async def reconcile_preview(body: TextIn, user=Depends(get_current_user)):
         out.append({"date": d, "real": real, "estimated": est, "diff": round(real - est, 2),
                     "entries": len(es), "confirmed": sum(1 for e in es if e.get("source") == "confirmado"),
                     "already_imported": d in statements})
-    return {"days": out, "lines_parsed": parsed["lines"],
+    return {"days": out, "lines_parsed": parsed["lines"], "format": parsed.get("format", "text"),
             "totals": {"real": round(sum(x["real"] for x in out), 2), "estimated": round(sum(x["estimated"] for x in out), 2)}}
 
 
