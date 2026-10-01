@@ -1,0 +1,776 @@
+import os
+import io
+import csv
+import re
+import uuid
+import calendar
+import logging
+import unicodedata
+from datetime import datetime, timezone, date, timedelta
+from zoneinfo import ZoneInfo
+from html import escape
+from typing import Optional, List, Any
+from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
+from db import db
+from auth import get_current_user, require_admin, audit, admin_emails
+from emailer import send_email, EMAIL_FROM_NAME
+
+logger = logging.getLogger(__name__)
+TZ = ZoneInfo("Europe/Madrid")
+TYPES = ["desarrollo", "corrección", "consulta", "pruebas"]
+PHASES = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "otra"]
+SOURCES = ["estimado", "confirmado", "importado"]
+LINE_FORMAT = "#cronos | título | tipo | fase | minutos | mensajes | créditos [| proyecto]"
+DEFAULT_SETTINGS = {"price_per_credit_eur": 0.01, "monthly_budget_credits": 5000, "alerts_sent": {}}
+ENTRY_FIELDS = ["title", "project", "type", "phase", "date", "minutes", "messages", "credits",
+                "source", "notes", "estimated_credits"]
+NO_ID = {"_id": 0}
+
+router = APIRouter(prefix="/api/cronos")
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def today_local() -> date:
+    return datetime.now(TZ).date()
+
+
+def valid_date(s: Any) -> bool:
+    try:
+        date.fromisoformat(str(s))
+        return True
+    except Exception:
+        return False
+
+
+def strip_accents(s: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
+
+
+def validate_enums(d: dict):
+    if "type" in d and d["type"] not in TYPES:
+        raise HTTPException(422, f"Tipo no válido. Valores: {', '.join(TYPES)}")
+    if "phase" in d and d["phase"] not in PHASES:
+        raise HTTPException(422, f"Fase no válida. Valores: {', '.join(PHASES)}")
+    if "source" in d and d["source"] not in SOURCES:
+        raise HTTPException(422, f"Origen no válido. Valores: {', '.join(SOURCES)}")
+    if "date" in d and not valid_date(d["date"]):
+        raise HTTPException(422, "Fecha no válida. Usa el formato AAAA-MM-DD")
+
+
+# ---------- settings ----------
+async def get_settings() -> dict:
+    s = dict(DEFAULT_SETTINGS)
+    async for doc in db.cronos_settings.find({}, NO_ID):
+        s[doc["key"]] = doc["value"]
+    return s
+
+
+async def set_setting(key: str, value: Any):
+    await db.cronos_settings.update_one({"key": key}, {"$set": {"key": key, "value": value}}, upsert=True)
+
+
+async def ensure_defaults():
+    for k, v in DEFAULT_SETTINGS.items():
+        if not await db.cronos_settings.find_one({"key": k}):
+            await set_setting(k, v)
+
+
+async def ensure_project(name: str):
+    if name and not await db.cronos_projects.find_one({"name": name}):
+        await db.cronos_projects.insert_one({"id": str(uuid.uuid4()), "name": name, "monthly_goal_credits": None,
+                                            "goal_credits": None, "color": None, "archived": False})
+
+
+# ---------- filters ----------
+class Filters:
+    def __init__(self, project: Optional[str] = None, type: Optional[str] = None, phase: Optional[str] = None,
+                 source: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None):
+        q: dict = {}
+        if project:
+            q["project"] = project
+        if type:
+            q["type"] = type
+        if phase:
+            q["phase"] = phase
+        if source:
+            q["source"] = source
+        if date_from or date_to:
+            q["date"] = {}
+            if date_from:
+                q["date"]["$gte"] = date_from
+            if date_to:
+                q["date"]["$lte"] = date_to
+        self.query = q
+
+
+async def fetch_entries(query: dict) -> list:
+    return await db.cronos_entries.find(query, NO_ID).sort([("date", -1), ("created_at", -1)]).to_list(10000)
+
+
+# ---------- stats ----------
+def agg(entries: list, key: str, price: float) -> list:
+    out: dict = {}
+    for e in entries:
+        k = e.get(key) or "—"
+        a = out.setdefault(k, {"key": k, "count": 0, "credits": 0.0, "minutes": 0, "messages": 0})
+        a["count"] += 1
+        a["credits"] += float(e.get("credits") or 0)
+        a["minutes"] += int(e.get("minutes") or 0)
+        a["messages"] += int(e.get("messages") or 0)
+    for a in out.values():
+        a["credits"] = round(a["credits"], 2)
+        a["cost_eur"] = round(a["credits"] * price, 2)
+    return sorted(out.values(), key=lambda x: -x["credits"])
+
+
+def compute_stats(entries: list, price: float) -> dict:
+    n = len(entries)
+    credits = round(sum(float(e.get("credits") or 0) for e in entries), 2)
+    minutes = sum(int(e.get("minutes") or 0) for e in entries)
+    messages = sum(int(e.get("messages") or 0) for e in entries)
+
+    def block(lst):
+        c = round(sum(float(e.get("credits") or 0) for e in lst), 2)
+        return {"count": len(lst), "credits": c, "cost_eur": round(c * price, 2),
+                "minutes": sum(int(e.get("minutes") or 0) for e in lst)}
+
+    corr = block([e for e in entries if e.get("type") == "corrección"])
+    dev = block([e for e in entries if e.get("type") == "desarrollo"])
+    tot = corr["credits"] + dev["credits"]
+    daily = sorted(agg(entries, "date", price), key=lambda x: x["key"])
+    for d in daily:
+        d["date"] = d.pop("key")
+    top = sorted(entries, key=lambda e: -float(e.get("credits") or 0))[:8]
+    return {
+        "count": n, "credits": credits, "cost_eur": round(credits * price, 2),
+        "minutes": minutes, "hours": round(minutes / 60, 2), "messages": messages,
+        "avg_credits_per_task": round(credits / n, 2) if n else 0,
+        "avg_minutes_per_task": round(minutes / n, 1) if n else 0,
+        "credits_per_message": round(credits / messages, 2) if messages else 0,
+        "credits_per_minute": round(credits / minutes, 2) if minutes else 0,
+        "comparison": {"correccion": corr, "desarrollo": dev,
+                       "correccion_pct": round(corr["credits"] / tot * 100, 1) if tot else 0},
+        "by_type": agg(entries, "type", price), "by_phase": agg(entries, "phase", price),
+        "by_source": agg(entries, "source", price), "daily": daily, "top": top,
+        "price_per_credit_eur": price,
+    }
+
+
+# ---------- parsing ----------
+def parse_number(raw: str) -> Optional[float]:
+    s = re.sub(r"[^\d,.\-]", "", raw or "")
+    if not s or not any(ch.isdigit() for ch in s):
+        return None
+    if "," in s and "." in s:
+        if s.rfind(",") > s.rfind("."):
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            s = s.replace(",", "")
+    elif "," in s or "." in s:
+        sep = "," if "," in s else "."
+        parts = s.split(sep)
+        if len(parts) == 2 and len(parts[1]) == 3 and parts[0].lstrip("-") not in ("", "0"):
+            s = s.replace(sep, "")
+        else:
+            s = s.replace(sep, ".")
+    try:
+        return abs(float(s))
+    except ValueError:
+        return None
+
+
+def normalize_type(raw: str) -> Optional[str]:
+    t = strip_accents(raw.strip().lower())
+    table = {"desarrollo": "desarrollo", "dev": "desarrollo", "development": "desarrollo", "feature": "desarrollo",
+             "correccion": "corrección", "fix": "corrección", "bug": "corrección", "bugfix": "corrección",
+             "consulta": "consulta", "pregunta": "consulta", "question": "consulta",
+             "pruebas": "pruebas", "test": "pruebas", "tests": "pruebas", "testing": "pruebas", "qa": "pruebas"}
+    return table.get(t)
+
+
+def normalize_phase(raw: str) -> str:
+    m = re.search(r"[pP]?\s*([1-7])\b", raw.strip())
+    return f"P{m.group(1)}" if m else "otra"
+
+
+def parse_cronos_line(line: str) -> dict:
+    parts = [p.strip() for p in line.strip().split("|")]
+    if not strip_accents(parts[0].lower()).startswith("#cronos"):
+        raise HTTPException(400, f"La línea debe empezar por «#cronos». Formato: {LINE_FORMAT}")
+    parts = parts[1:]
+    if len(parts) < 6:
+        raise HTTPException(400, f"Faltan campos ({len(parts)} de 6). Formato: {LINE_FORMAT}")
+    warnings: list = []
+    title, type_raw, phase_raw, min_raw, msg_raw, cr_raw = parts[:6]
+    project = parts[6] if len(parts) > 6 else ""
+    typ = normalize_type(type_raw)
+    if not typ:
+        typ = "desarrollo"
+        warnings.append(f"Tipo «{type_raw}» no reconocido; se usa «desarrollo»")
+    phase = normalize_phase(phase_raw)
+    if phase == "otra" and strip_accents(phase_raw.lower()) != "otra":
+        warnings.append(f"Fase «{phase_raw}» no reconocida; se usa «otra»")
+    minutes = parse_number(min_raw)
+    messages = parse_number(msg_raw)
+    credits = parse_number(cr_raw)
+    if credits is None:
+        warnings.append("No se ha podido leer la cifra de créditos")
+    return {
+        "draft": {"title": title, "project": project, "type": typ, "phase": phase,
+                  "date": today_local().isoformat(), "minutes": int(round(minutes or 0)),
+                  "messages": int(round(messages or 0)), "credits": round(credits or 0, 2),
+                  "source": "estimado", "notes": ""},
+        "warnings": warnings,
+    }
+
+
+DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})|(\d{2})/(\d{2})/(\d{4})")
+TIME_RE = re.compile(r"\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:[ap]\.?m\.?)?", re.I)
+CRED_RE = re.compile(r"(-?\d[\d.,]*)\s*(?:cr|cré|cred)", re.I)
+NUM_RE = re.compile(r"-?\d[\d.,]*")
+
+
+def parse_statement(text: str) -> dict:
+    per_day: dict = {}
+    lines = 0
+    for line in text.splitlines():
+        m = DATE_RE.search(line)
+        if not m:
+            continue
+        d = f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m.group(1) else f"{m.group(6)}-{m.group(5)}-{m.group(4)}"
+        if not valid_date(d):
+            continue
+        rest = TIME_RE.sub(" ", line[:m.start()] + " " + line[m.end():])
+        cm = CRED_RE.search(rest)
+        if cm:
+            num = parse_number(cm.group(1))
+        else:
+            nums = [x for x in NUM_RE.findall(rest) if any(ch.isdigit() for ch in x)]
+            num = parse_number(nums[-1]) if nums else None
+        if num is None:
+            continue
+        per_day[d] = per_day.get(d, 0.0) + num
+        lines += 1
+    return {"per_day": {k: round(v, 2) for k, v in per_day.items()}, "lines": lines}
+
+
+# ---------- budget ----------
+def light(pct: Optional[float]) -> str:
+    if pct is None:
+        return "none"
+    if pct < 70:
+        return "green"
+    if pct <= 100:
+        return "amber"
+    return "red"
+
+
+async def budget_status() -> dict:
+    settings = await get_settings()
+    today = today_local()
+    ym = today.strftime("%Y-%m")
+    entries = await db.cronos_entries.find({"date": {"$regex": f"^{ym}"}}, {"_id": 0, "credits": 1}).to_list(10000)
+    consumed = round(sum(float(e.get("credits") or 0) for e in entries), 2)
+    budget = float(settings.get("monthly_budget_credits") or 0)
+    price = float(settings.get("price_per_credit_eur") or 0)
+    days_in_month = calendar.monthrange(today.year, today.month)[1]
+    projection = round(consumed / today.day * days_in_month, 2)
+    pct = round(consumed / budget * 100, 1) if budget else None
+    return {"month": ym, "consumed": consumed, "consumed_eur": round(consumed * price, 2), "budget": budget,
+            "budget_eur": round(budget * price, 2), "pct": pct, "remaining": round(budget - consumed, 2),
+            "projection": projection, "projection_pct": round(projection / budget * 100, 1) if budget else None,
+            "days_elapsed": today.day, "days_in_month": days_in_month, "status": light(pct),
+            "alerts_sent": (settings.get("alerts_sent") or {}).get(ym, [])}
+
+
+def budget_alert_html(th: int, st: dict) -> str:
+    link = f'<p><a href="{escape(APP_URL)}" style="color:#00b386">Abrir Cronos</a></p>' if APP_URL.startswith("https://") else ""
+    return (f'<table role="presentation" width="100%" style="background:#0d131f;color:#f8fafc"><tr><td style="padding:24px;font-family:Arial,sans-serif">'
+            f'<h2 style="margin:0 0 12px;color:#00ffbf">Presupuesto mensual al {th}%</h2>'
+            f'<p>El consumo de créditos de {escape(st["month"])} ha alcanzado el <strong>{st["pct"]}%</strong> del presupuesto.</p>'
+            f'<p style="font-family:Courier New,monospace">Consumido: {st["consumed"]} cr ({st["consumed_eur"]} €) / Presupuesto: {st["budget"]} cr<br>'
+            f'Proyección fin de mes: {st["projection"]} cr ({st["projection_pct"]}%)</p>{link}'
+            f'<p style="font-size:12px;color:#888">Enviado por {escape(EMAIL_FROM_NAME)}.</p></td></tr></table>')
+
+
+APP_URL = os.environ.get("APP_PUBLIC_URL", "")
+
+
+async def notify_budget(thresholds: list, st: dict):
+    for th in thresholds:
+        for to in sorted(admin_emails()):
+            try:
+                await send_email(to=to, subject=f"[{EMAIL_FROM_NAME}] Presupuesto mensual al {th}%",
+                                 html=budget_alert_html(th, st))
+            except Exception as e:
+                logger.error(f"Aviso de presupuesto no enviado a {to}: {e}")
+
+
+async def check_budget_alerts(background: Optional[BackgroundTasks] = None) -> dict:
+    st = await budget_status()
+    if not st["budget"]:
+        return st
+    settings = await get_settings()
+    alerts_sent = settings.get("alerts_sent") or {}
+    sent = list(alerts_sent.get(st["month"], []))
+    new = [th for th in (80, 100) if st["pct"] >= th and th not in sent]
+    if new:
+        alerts_sent[st["month"]] = sent + new
+        await set_setting("alerts_sent", alerts_sent)
+        st["alerts_sent"] = sent + new
+        if background is not None:
+            background.add_task(notify_budget, new, st)
+        else:
+            await notify_budget(new, st)
+    return st
+
+
+# ---------- projects ----------
+async def projects_overview() -> list:
+    projects = await db.cronos_projects.find({}, NO_ID).sort("name", 1).to_list(500)
+    ym = today_local().strftime("%Y-%m")
+    rows = await db.cronos_entries.find({}, {"_id": 0, "project": 1, "date": 1, "credits": 1}).to_list(20000)
+    totals: dict = {}
+    for r in rows:
+        t = totals.setdefault(r.get("project") or "", {"total": 0.0, "month": 0.0, "count": 0})
+        c = float(r.get("credits") or 0)
+        t["total"] += c
+        t["count"] += 1
+        if str(r.get("date", "")).startswith(ym):
+            t["month"] += c
+    out = []
+    for p in projects:
+        t = totals.get(p["name"], {"total": 0.0, "month": 0.0, "count": 0})
+        mg, tg = p.get("monthly_goal_credits"), p.get("goal_credits")
+        pct_month = round(t["month"] / mg * 100, 1) if mg else None
+        pct_total = round(t["total"] / tg * 100, 1) if tg else None
+        primary = pct_month if mg else pct_total
+        out.append({**p, "consumed_total": round(t["total"], 2), "consumed_month": round(t["month"], 2),
+                    "entries": t["count"], "pct_month": pct_month, "pct_total": pct_total,
+                    "status": light(primary)})
+    return out
+
+
+# ---------- digest ----------
+def _fmt(n: float, d: int = 1) -> str:
+    return f"{n:,.{d}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+async def build_digest() -> dict:
+    settings = await get_settings()
+    price = float(settings.get("price_per_credit_eur") or 0)
+    today = today_local()
+    this_monday = today - timedelta(days=today.weekday())
+    week_start, week_end = this_monday - timedelta(days=7), this_monday - timedelta(days=1)
+    prev_start, prev_end = week_start - timedelta(days=7), week_start - timedelta(days=1)
+    week = await fetch_entries({"date": {"$gte": week_start.isoformat(), "$lte": week_end.isoformat()}})
+    prev = await fetch_entries({"date": {"$gte": prev_start.isoformat(), "$lte": prev_end.isoformat()}})
+    ws, ps = compute_stats(week, price), compute_stats(prev, price)
+    budget = await budget_status()
+    statement_days = {s["date"] for s in await db.cronos_statements.find({}, NO_ID).to_list(5000)}
+    pending = sorted({e["date"] for e in await db.cronos_entries.find({"source": "estimado"}, {"_id": 0, "date": 1}).to_list(20000)
+                      if e["date"] not in statement_days}, reverse=True)[:20]
+    return {"period": {"from": week_start.isoformat(), "to": week_end.isoformat()},
+            "prev_period": {"from": prev_start.isoformat(), "to": prev_end.isoformat()},
+            "week": ws, "prev": ps, "top5": ws["top"][:5], "budget": budget, "pending_days": pending}
+
+
+def digest_html(d: dict) -> str:
+    w, p, b = d["week"], d["prev"], d["budget"]
+
+    def row(label, value, prev_value=None):
+        delta = ""
+        if prev_value is not None:
+            delta = f' <span style="color:#94a3b8">(sem. ant. {escape(str(prev_value))})</span>'
+        return (f'<tr><td style="padding:6px 10px;color:#94a3b8">{escape(label)}</td>'
+                f'<td style="padding:6px 10px;text-align:right;font-family:Courier New,monospace;font-weight:bold">{escape(str(value))}{delta}</td></tr>')
+
+    top_rows = ""
+    for t in d["top5"]:
+        title, meta_txt = escape(t.get("title") or ""), escape(f'{t.get("project") or ""} · {t.get("type") or ""} · {t.get("phase") or ""}')
+        cr = _fmt(float(t.get("credits") or 0))
+        top_rows += (f'<tr><td style="padding:4px 10px">{title}<br><span style="color:#64748b;font-size:12px">{meta_txt}</span></td>'
+                     f'<td style="padding:4px 10px;text-align:right;font-family:Courier New,monospace">{cr} cr</td></tr>')
+    top_rows = top_rows or '<tr><td style="padding:4px 10px;color:#64748b">Sin tareas esta semana</td></tr>'
+    pending = ", ".join(d["pending_days"]) if d["pending_days"] else "Ninguno, todo cuadrado"
+    link = f'<p><a href="{escape(APP_URL)}" style="color:#00b386">Abrir Cronos</a></p>' if APP_URL.startswith("https://") else ""
+    if b["budget"]:
+        budget_line = _fmt(b["consumed"]) + " / " + _fmt(b["budget"], 0) + f' cr ({b["pct"]}%) · proyección ' + _fmt(b["projection"]) + " cr"
+    else:
+        budget_line = "Sin presupuesto configurado"
+    rows = (row("Créditos", _fmt(w["credits"]) + " cr", _fmt(p["credits"]) + " cr")
+            + row("Coste", _fmt(w["cost_eur"], 2) + " €", _fmt(p["cost_eur"], 2) + " €")
+            + row("Horas", _fmt(w["hours"]) + " h", _fmt(p["hours"]) + " h")
+            + row("Tareas", w["count"], p["count"])
+            + row("Mensajes", w["messages"], p["messages"])
+            + row("Corrección vs desarrollo", str(w["comparison"]["correccion_pct"]) + "% corrección"))
+    period_from, period_to, month = escape(d["period"]["from"]), escape(d["period"]["to"]), escape(b["month"])
+    return (f'<table role="presentation" width="100%" style="max-width:640px;background:#0d131f;color:#f8fafc;border-radius:8px"><tr><td style="padding:24px;font-family:Arial,sans-serif">'
+            f'<h2 style="margin:0 0 4px;color:#00ffbf">Resumen semanal · {period_from} → {period_to}</h2>'
+            f'<p style="margin:0 0 16px;color:#94a3b8">{escape(EMAIL_FROM_NAME)} · consumo de agentes IA</p>'
+            f'<table width="100%" style="border-collapse:collapse;background:#141c2e;border-radius:6px">{rows}</table>'
+            f'<h3 style="margin:20px 0 6px;color:#f8fafc">Top 5 tareas</h3><table width="100%" style="border-collapse:collapse">{top_rows}</table>'
+            f'<h3 style="margin:20px 0 6px;color:#f8fafc">Presupuesto {month}</h3><p style="font-family:Courier New,monospace">{budget_line}</p>'
+            f'<h3 style="margin:20px 0 6px;color:#f8fafc">Días con entradas estimadas sin cuadrar</h3><p style="font-family:Courier New,monospace;color:#f59e0b">{escape(pending)}</p>'
+            f'{link}<p style="font-size:12px;color:#888">Enviado por {escape(EMAIL_FROM_NAME)}.</p></td></tr></table>')
+
+
+def digest_recipients() -> list:
+    env = [e.strip() for e in os.environ.get("WEEKLY_DIGEST_EMAILS", "").split(",") if e.strip()]
+    return env or sorted(admin_emails())
+
+
+async def send_weekly_digest(trigger: str = "manual") -> dict:
+    d = await build_digest()
+    html = digest_html(d)
+    subject = f"[{EMAIL_FROM_NAME}] Resumen semanal {d['period']['from']} → {d['period']['to']}"
+    sent, failed = [], []
+    for to in digest_recipients():
+        try:
+            await send_email(to=to, subject=subject, html=html)
+            sent.append(to)
+        except Exception as e:
+            logger.error(f"Resumen semanal no enviado a {to}: {e}")
+            failed.append(to)
+    await db.audit_log.insert_one({"who": trigger, "action": "weekly_digest", "target": "email",
+                                   "detail": f"Enviado a {', '.join(sent) or 'nadie'}", "ip": "", "at": now_iso()})
+    return {"sent_to": sent, "failed": failed, "period": d["period"]}
+
+
+async def run_budget_check():
+    await check_budget_alerts(None)
+
+
+# ---------- import ----------
+async def import_payload(payload: dict, who: str) -> dict:
+    n_e = n_s = 0
+    for i, raw in enumerate(payload.get("entries") or []):
+        e = {k: raw.get(k) for k in ENTRY_FIELDS}
+        e["project"] = e.get("project") or ""
+        e["notes"] = e.get("notes") or ""
+        e["source"] = e.get("source") or "estimado"
+        e["minutes"] = int(e.get("minutes") or 0)
+        e["messages"] = int(e.get("messages") or 0)
+        e["credits"] = float(e.get("credits") or 0)
+        if not e.get("title") or not e.get("type") or not e.get("phase") or not e.get("date"):
+            raise HTTPException(422, f"Entrada #{i + 1}: faltan campos obligatorios (title, type, phase, date)")
+        validate_enums(e)
+        e["updated_at"] = now_iso()
+        eid = raw.get("id") or str(uuid.uuid4())
+        await db.cronos_entries.update_one({"id": eid}, {"$set": e, "$setOnInsert": {"id": eid, "created_at": now_iso(), "created_by": who}}, upsert=True)
+        await ensure_project(e["project"])
+        n_e += 1
+    for s in payload.get("statements") or []:
+        if not valid_date(s.get("date")):
+            continue
+        await db.cronos_statements.update_one({"date": s["date"]}, {"$set": {
+            "date": s["date"], "credits": float(s.get("credits") or 0),
+            "imported_at": s.get("imported_at") or now_iso(), "by": s.get("by") or who}}, upsert=True)
+        n_s += 1
+    return {"entries": n_e, "statements": n_s}
+
+
+# ---------- models ----------
+class EntryIn(BaseModel):
+    title: str = Field(min_length=1)
+    project: str = ""
+    type: str
+    phase: str
+    date: str
+    minutes: int = Field(ge=0, default=0)
+    messages: int = Field(ge=0, default=0)
+    credits: float = Field(ge=0, default=0)
+    source: str = "estimado"
+    notes: str = ""
+    estimated_credits: Optional[float] = None
+
+
+class EntryPatch(BaseModel):
+    title: Optional[str] = None
+    project: Optional[str] = None
+    type: Optional[str] = None
+    phase: Optional[str] = None
+    date: Optional[str] = None
+    minutes: Optional[int] = Field(ge=0, default=None)
+    messages: Optional[int] = Field(ge=0, default=None)
+    credits: Optional[float] = Field(ge=0, default=None)
+    source: Optional[str] = None
+    notes: Optional[str] = None
+    estimated_credits: Optional[float] = None
+
+
+class LineIn(BaseModel):
+    line: str
+
+
+class TextIn(BaseModel):
+    text: str
+
+
+class DayIn(BaseModel):
+    date: str
+    credits: float
+
+
+class ApplyIn(BaseModel):
+    days: List[DayIn]
+
+
+class ImportIn(BaseModel):
+    entries: List[dict] = []
+    statements: List[dict] = []
+
+
+class SettingsIn(BaseModel):
+    price_per_credit_eur: Optional[float] = Field(ge=0, default=None)
+    monthly_budget_credits: Optional[float] = Field(ge=0, default=None)
+
+
+class ProjectIn(BaseModel):
+    name: str = Field(min_length=1)
+    monthly_goal_credits: Optional[float] = Field(ge=0, default=None)
+    goal_credits: Optional[float] = Field(ge=0, default=None)
+    color: Optional[str] = None
+    archived: bool = False
+
+
+class ProjectPatch(BaseModel):
+    name: Optional[str] = None
+    monthly_goal_credits: Optional[float] = Field(ge=0, default=None)
+    goal_credits: Optional[float] = Field(ge=0, default=None)
+    color: Optional[str] = None
+    archived: Optional[bool] = None
+
+
+# ---------- routes ----------
+@router.get("/meta")
+async def meta(user=Depends(get_current_user)):
+    names = {p["name"] for p in await db.cronos_projects.find({"archived": {"$ne": True}}, NO_ID).to_list(500)}
+    names |= {p for p in await db.cronos_entries.distinct("project") if p}
+    return {"types": TYPES, "phases": PHASES, "sources": SOURCES, "projects": sorted(names), "line_format": LINE_FORMAT}
+
+
+@router.get("/entries")
+async def list_entries(f: Filters = Depends(), user=Depends(get_current_user)):
+    return await fetch_entries(f.query)
+
+
+@router.post("/entries", status_code=201)
+async def create_entry(body: EntryIn, request: Request, background: BackgroundTasks, user=Depends(require_admin)):
+    d = body.model_dump()
+    validate_enums(d)
+    d.update({"id": str(uuid.uuid4()), "created_by": user["email"], "created_at": now_iso(), "updated_at": now_iso()})
+    await db.cronos_entries.insert_one(dict(d))
+    await ensure_project(d["project"])
+    await audit(user["email"], "entry_create", d["id"], d["title"], request)
+    await check_budget_alerts(background)
+    return d
+
+
+@router.patch("/entries/{entry_id}")
+async def patch_entry(entry_id: str, body: EntryPatch, request: Request, user=Depends(require_admin)):
+    changes = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not changes:
+        raise HTTPException(400, "No hay cambios")
+    validate_enums(changes)
+    if "title" in changes and not changes["title"].strip():
+        raise HTTPException(422, "El título no puede estar vacío")
+    changes["updated_at"] = now_iso()
+    res = await db.cronos_entries.update_one({"id": entry_id}, {"$set": changes})
+    if res.matched_count == 0:
+        raise HTTPException(404, "Entrada no encontrada")
+    if changes.get("project"):
+        await ensure_project(changes["project"])
+    await audit(user["email"], "entry_update", entry_id, ", ".join(k for k in changes if k != "updated_at"), request)
+    return await db.cronos_entries.find_one({"id": entry_id}, NO_ID)
+
+
+@router.delete("/entries/{entry_id}")
+async def delete_entry(entry_id: str, request: Request, user=Depends(require_admin)):
+    doc = await db.cronos_entries.find_one({"id": entry_id}, NO_ID)
+    if not doc:
+        raise HTTPException(404, "Entrada no encontrada")
+    await db.cronos_entries.delete_one({"id": entry_id})
+    await audit(user["email"], "entry_delete", entry_id, doc.get("title", ""), request)
+    return {"ok": True}
+
+
+@router.post("/parse-line")
+async def parse_line(body: LineIn, user=Depends(get_current_user)):
+    return parse_cronos_line(body.line)
+
+
+@router.get("/stats")
+async def stats(f: Filters = Depends(), user=Depends(get_current_user)):
+    settings = await get_settings()
+    return compute_stats(await fetch_entries(f.query), float(settings.get("price_per_credit_eur") or 0))
+
+
+@router.post("/reconcile/preview")
+async def reconcile_preview(body: TextIn, user=Depends(get_current_user)):
+    parsed = parse_statement(body.text)
+    if not parsed["per_day"]:
+        raise HTTPException(400, "No se han encontrado líneas con fecha y créditos en el texto pegado")
+    days = sorted(parsed["per_day"])
+    entries = await fetch_entries({"date": {"$in": days}})
+    statements = {s["date"]: s for s in await db.cronos_statements.find({"date": {"$in": days}}, NO_ID).to_list(1000)}
+    out = []
+    for d in days:
+        es = [e for e in entries if e["date"] == d]
+        est = round(sum(float(e.get("estimated_credits") if e.get("source") == "confirmado" and e.get("estimated_credits") is not None else e.get("credits") or 0) for e in es), 2)
+        real = parsed["per_day"][d]
+        out.append({"date": d, "real": real, "estimated": est, "diff": round(real - est, 2),
+                    "entries": len(es), "confirmed": sum(1 for e in es if e.get("source") == "confirmado"),
+                    "already_imported": d in statements})
+    return {"days": out, "lines_parsed": parsed["lines"],
+            "totals": {"real": round(sum(x["real"] for x in out), 2), "estimated": round(sum(x["estimated"] for x in out), 2)}}
+
+
+@router.post("/reconcile/apply")
+async def reconcile_apply(body: ApplyIn, request: Request, background: BackgroundTasks, user=Depends(require_admin)):
+    adjusted, unassigned, applied = 0, [], []
+    for day in body.days:
+        if not valid_date(day.date):
+            raise HTTPException(422, f"Fecha no válida: {day.date}")
+        entries = await db.cronos_entries.find({"date": day.date}, NO_ID).to_list(1000)
+        if not entries:
+            await db.cronos_entries.insert_one({
+                "id": str(uuid.uuid4()), "title": "Sin asignar", "project": "Sin asignar", "type": "desarrollo",
+                "phase": "otra", "date": day.date, "minutes": 0, "messages": 0, "credits": round(day.credits, 2),
+                "source": "importado", "notes": "Creada automáticamente al cuadrar el extracto (sin tareas ese día)",
+                "estimated_credits": None, "created_by": user["email"], "created_at": now_iso(), "updated_at": now_iso()})
+            await ensure_project("Sin asignar")
+            unassigned.append(day.date)
+        else:
+            base = [float(e.get("estimated_credits")) if e.get("estimated_credits") is not None else float(e.get("credits") or 0) for e in entries]
+            total = sum(base)
+            weights = [b / total for b in base] if total > 0 else [1 / len(entries)] * len(entries)
+            alloc = [round(day.credits * w, 2) for w in weights]
+            alloc[-1] = round(day.credits - sum(alloc[:-1]), 2)
+            for e, b, a in zip(entries, base, alloc):
+                upd = {"credits": a, "updated_at": now_iso()}
+                if e.get("source") != "importado":
+                    upd["source"] = "confirmado"
+                    upd["estimated_credits"] = b
+                await db.cronos_entries.update_one({"id": e["id"]}, {"$set": upd})
+            adjusted += len(entries)
+        await db.cronos_statements.update_one({"date": day.date}, {"$set": {
+            "date": day.date, "credits": round(day.credits, 2), "imported_at": now_iso(), "by": user["email"]}}, upsert=True)
+        applied.append(day.date)
+    await audit(user["email"], "reconcile_apply", "statements", f"{len(applied)} días, {adjusted} tareas, {len(unassigned)} sin asignar", request)
+    await check_budget_alerts(background)
+    return {"days_applied": applied, "adjusted_entries": adjusted, "unassigned_days": unassigned}
+
+
+@router.get("/statements")
+async def list_statements(user=Depends(get_current_user)):
+    return await db.cronos_statements.find({}, NO_ID).sort("date", -1).to_list(5000)
+
+
+@router.get("/export.csv")
+async def export_csv(f: Filters = Depends(), user=Depends(get_current_user)):
+    settings = await get_settings()
+    price = float(settings.get("price_per_credit_eur") or 0)
+    entries = await fetch_entries(f.query)
+    buf = io.StringIO()
+    buf.write("\ufeff")
+    w = csv.writer(buf)
+    w.writerow(["fecha", "titulo", "proyecto", "tipo", "fase", "minutos", "mensajes", "creditos", "coste_eur", "origen", "notas"])
+    for e in entries:
+        c = float(e.get("credits") or 0)
+        w.writerow([e.get("date"), e.get("title"), e.get("project"), e.get("type"), e.get("phase"), e.get("minutes"),
+                    e.get("messages"), f"{c:.2f}", f"{c * price:.2f}", e.get("source"), e.get("notes") or ""])
+    return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="cronos_{today_local().isoformat()}.csv"'})
+
+
+@router.post("/import")
+async def import_data(body: ImportIn, request: Request, user=Depends(require_admin)):
+    res = await import_payload(body.model_dump(), user["email"])
+    await audit(user["email"], "import", "entries", f"{res['entries']} entradas, {res['statements']} extractos", request)
+    return res
+
+
+@router.get("/settings")
+async def read_settings(user=Depends(get_current_user)):
+    s = await get_settings()
+    return {"price_per_credit_eur": s["price_per_credit_eur"], "monthly_budget_credits": s["monthly_budget_credits"],
+            "alerts_sent": s.get("alerts_sent") or {}, "digest_recipients": digest_recipients(), "admin_emails": sorted(admin_emails())}
+
+
+@router.put("/settings")
+async def update_settings(body: SettingsIn, request: Request, user=Depends(require_admin)):
+    changes = {k: v for k, v in body.model_dump().items() if v is not None}
+    for k, v in changes.items():
+        await set_setting(k, v)
+    await audit(user["email"], "settings_update", "settings", ", ".join(f"{k}={v}" for k, v in changes.items()), request)
+    return await read_settings(user)
+
+
+@router.get("/budget")
+async def budget(background: BackgroundTasks, user=Depends(get_current_user)):
+    return await check_budget_alerts(background)
+
+
+@router.get("/projects")
+async def list_projects(user=Depends(get_current_user)):
+    return await projects_overview()
+
+
+@router.post("/projects", status_code=201)
+async def create_project(body: ProjectIn, request: Request, user=Depends(require_admin)):
+    if await db.cronos_projects.find_one({"name": body.name}):
+        raise HTTPException(409, "Ya existe un proyecto con ese nombre")
+    d = {"id": str(uuid.uuid4()), **body.model_dump()}
+    await db.cronos_projects.insert_one(dict(d))
+    await audit(user["email"], "project_create", d["id"], d["name"], request)
+    return d
+
+
+@router.patch("/projects/{project_id}")
+async def patch_project(project_id: str, body: ProjectPatch, request: Request, user=Depends(require_admin)):
+    changes = body.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(400, "No hay cambios")
+    old = await db.cronos_projects.find_one({"id": project_id}, NO_ID)
+    if not old:
+        raise HTTPException(404, "Proyecto no encontrado")
+    await db.cronos_projects.update_one({"id": project_id}, {"$set": changes})
+    if changes.get("name") and changes["name"] != old["name"]:
+        await db.cronos_entries.update_many({"project": old["name"]}, {"$set": {"project": changes["name"]}})
+    await audit(user["email"], "project_update", project_id, ", ".join(changes), request)
+    return await db.cronos_projects.find_one({"id": project_id}, NO_ID)
+
+
+@router.delete("/projects/{project_id}")
+async def delete_project(project_id: str, request: Request, user=Depends(require_admin)):
+    doc = await db.cronos_projects.find_one({"id": project_id}, NO_ID)
+    if not doc:
+        raise HTTPException(404, "Proyecto no encontrado")
+    await db.cronos_projects.delete_one({"id": project_id})
+    await audit(user["email"], "project_delete", project_id, doc["name"], request)
+    return {"ok": True}
+
+
+@router.get("/digest/preview")
+async def digest_preview(user=Depends(require_admin)):
+    d = await build_digest()
+    return {**d, "recipients": digest_recipients(), "html": digest_html(d)}
+
+
+@router.post("/digest/send")
+async def digest_send(request: Request, user=Depends(require_admin)):
+    res = await send_weekly_digest(user["email"])
+    if not res["sent_to"]:
+        raise HTTPException(502, "No se pudo enviar el resumen a ningún destinatario")
+    return res
+
+
+@router.get("/audit")
+async def audit_list(user=Depends(require_admin)):
+    return await db.audit_log.find({}, NO_ID).sort("at", -1).to_list(50)

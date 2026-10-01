@@ -1,0 +1,18 @@
+crons:
+  - name: weekly-digest
+    description: "Envía el resumen semanal de consumo por email a los admins cada lunes a las 08:00 (Madrid)"
+    # Day-of-week numeric: 1 = lunes
+    cron: "0 8 * * 1"
+    timezone: "Europe/Madrid"
+    endpoint: "{{BASE_URL}}/api/cron/weekly-digest"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true
+  - name: budget-check
+    description: "Comprueba a diario el presupuesto mensual y envía avisos al cruzar el 80% y el 100%"
+    cron: "0 9 * * *"
+    timezone: "Europe/Madrid"
+    endpoint: "{{BASE_URL}}/api/cron/budget-check"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true

@@ -1,0 +1,173 @@
+{
+  "project_info": {
+    "name": "Cronos Disruptivos",
+    "description": "App web interna de la agencia Disruptivos para registrar, monitorear y analizar el consumo de agentes de IA (Emergent) por proyecto, tarea y fase, y cuadrar con extractos reales de facturación.",
+    "language": "es",
+    "theme_mode": "dark",
+    "file_type": "js"
+  },
+  "typography": {
+    "headings_font": "Space Grotesk, Syne, Cabinet Grotesk, sans-serif",
+    "body_font": "Plus Jakarta Sans, Outfit, sans-serif",
+    "mono_numeric_font": "JetBrains Mono, Fira Code, monospace",
+    "font_rules": {
+      "banned_fonts": ["Inter", "Roboto"],
+      "usage": {
+        "headings": "Font family 'Space Grotesk' o 'Syne' para titulares principales (H1-H3), con tracking-tight para darle un look técnico y futurista de agencia.",
+        "numbers_and_code": "Font family 'JetBrains Mono' o 'Fira Code' para KPIs, créditos, importes en euros (€), tags #cronos, fechas, IDs y badges de estado.",
+        "body_text": "Font family 'Plus Jakarta Sans' o 'Outfit' para textos descriptivos, labeleado de formularios e instrucciones."
+      }
+    },
+    "hierarchy": {
+      "h1": "text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-slate-100",
+      "h2": "text-xl sm:text-2xl font-semibold tracking-tight text-slate-100",
+      "h3": "text-lg sm:text-xl font-medium text-slate-200",
+      "kpi_number": "text-3xl sm:text-4xl font-extrabold font-mono tracking-tight text-emerald-400",
+      "mono_label": "text-xs font-mono uppercase tracking-widest text-slate-400",
+      "body": "text-sm leading-relaxed text-slate-300"
+    }
+  },
+  "colors": {
+    "background_dark": "#070B11",
+    "surface_dark": "#0D131F",
+    "surface_subtle": "#141C2E",
+    "border_subtle": "#1E293B",
+    "border_mint": "rgba(0, 255, 191, 0.3)",
+    "primary_mint": "#00FFBF",
+    "primary_mint_hover": "#00E0A8",
+    "mint_glow": "rgba(0, 255, 191, 0.15)",
+    "status_colors": {
+      "success_green": "#10B981",
+      "warning_amber": "#F59E0B",
+      "danger_red": "#EF4444",
+      "info_cyan": "#06B6D4",
+      "phase_desarrollo": "#3B82F6",
+      "phase_correccion": "#F97316",
+      "phase_investigacion": "#A855F7"
+    },
+    "text": {
+      "primary": "#F8FAFC",
+      "secondary": "#94A3B8",
+      "muted": "#64748B",
+      "accent_mint": "#00FFBF"
+    },
+    "rules": {
+      "forbidden": ["purple_gradients", "#7351B7", "Inter", "Roboto"],
+      "cards_style": "Fondo #0D131F con borde delgado #1E293B y micro-efecto de hover mint glow en #00FFBF.",
+      "chart_palette": ["#00FFBF", "#3B82F6", "#F97316", "#10B981", "#A855F7"]
+    }
+  },
+  "layout_and_grids": {
+    "density": "High density / UI compacta para profesionales con alineación tabular para cifras.",
+    "global_filters_bar": "Fijo superior debajo del header o en el hero de cada sección: Rango de fechas, Selector de Proyecto, Selector de Agente (Emergent), Fase (Desarrollo/Corrección) y Botón Limpiar.",
+    "navigation_bar": "Sticky top bar con backdrop-blur #0D131F/90, logo Disruptivos + Cronos con indicador LED mint palpitante, navegación por pestañas (Inicio, Registro, Cuadrar, Ajustes) y perfil de usuario con Login Google / Avatar.",
+    "page_structure": {
+      "panel_costes": {
+        "kpi_grid": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4",
+        "charts_grid": "grid grid-cols-1 lg:grid-cols-12 gap-6",
+        "projects_grid": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
+      },
+      "registro": {
+        "quick_add_box": "Panel destacado de entrada rápida #cronos con sintaxis sugerida y resaltado de sintaxis sintético.",
+        "dense_table": "Tabla HTML/Shadcn responsiva compacta con scroll horizontal si es necesario, filas hoverables, badges sintéticos por origen (API, Manual, Prompt)."
+      },
+      "cuadrar": {
+        "split_view": "grid grid-cols-1 lg:grid-cols-12 gap-6 (6 cols textarea extracto, 6 cols resumen del periodo) seguido de vista previa por días con checkboxes."
+      },
+      "ajustes": {
+        "forms_grid": "grid grid-cols-1 lg:grid-cols-2 gap-6 para precio crédito, presupuesto mensual, CRUD proyectos y disparador de resumen semanal."
+      }
+    }
+  },
+  "pages_and_features": {
+    "panel_costes_slash": {
+      "route": "/",
+      "title": "Panel de Costes y Consumo",
+      "components": [
+        "Filtros Globales (Fechas, Proyecto, Agente, Tipo)",
+        "KPI Cards Grandes: Total Créditos Consumidos, Coste Estimado (€), Mensajes IA Totales, Desviación vs Extraíble",
+        "Barra de Presupuesto Mensual con Alerta Automática al >80% (indicador de advertencia ambar/rojo con badge '¡Atención!')",
+        "Gráfica Diaria de Consumo de Créditos y Mensajes (Recharts Area/Bar con gradiente Mint y Azul)",
+        "Desglose por Tipo/Fase: Gráfica Donut/Pie + Tabla comparativa Desarrollo vs Corrección",
+        "Top Tareas Más Costosas (Ranking con barra de progreso y consumo individual)",
+        "Tarjetas de Proyectos con Semáforo de Estado (Verde: <70%, Ámbar: 70-85%, Rojo: >85% de presupuesto)"
+      ]
+    },
+    "registro_slash_registro": {
+      "route": "/registro",
+      "title": "Registro Detallado de Consumos",
+      "components": [
+        "Alta Rápida pegando línea #cronos (ej: #cronos #proyecto Alpha #agente GPT-4 #creditos 45 #fase desarrollo #desc Modulo auth)",
+        "Tabla Densa de Registros con Filtro Integrado y Búsqueda en tiempo real",
+        "Badges de Origen de Datos (Agente IA, Extracción Automatizada, Entrada Manual)",
+        "Acciones en fila: Editar inline/modal, Borrado con confirmación",
+        "Exportación masiva a CSV con un clic"
+      ]
+    },
+    "cuadrar_slash_cuadrar": {
+      "route": "/cuadrar",
+      "title": "Cuadrar y Reconciliar Extracto Real",
+      "components": [
+        "Textarea para pegar el extracto crudo en texto o CSV de Emergent / OpenAI / Anthropic",
+        "Parseador automático que desglosa por fecha y créditos el extracto real",
+        "Vista previa comparativa diaria: Registrado en Cronos vs Extracto Real = Diferencia / Desviación",
+        "Checkboxes de selección diaria para aplicar ajustes y marcar días conciliados"
+      ]
+    },
+    "ajustes_slash_ajustes": {
+      "route": "/ajustes",
+      "title": "Configuración y Ajustes",
+      "components": [
+        "Calculadora de Precio por Crédito (€/crédito) y Tasa de Conversión",
+        "Límite de Presupuesto Mensual Global de la Agencia",
+        "Gestión CRUD de Proyectos (Crear, Nombre, Cliente, Presupuesto Asignado, Agente Preferido, Estado)",
+        "Módulo de Enviar Resumen Semanal (disparador con vista previa de e-mail formateado para Slack/E-mail)"
+      ]
+    },
+    "login_google": {
+      "route": "/login",
+      "title": "Acceso Corporativo Disruptivos",
+      "components": [
+        "Tarjeta centralizada con fondo oscuro y brillo sutil menta",
+        "Logo de Disruptivos + Cronos",
+        "Botón de Login con Google ('Continuar con Google')",
+        "Modo de simulación / Demo instantánea para desarrollo"
+      ]
+    }
+  },
+  "component_guidelines": {
+    "buttons": "Usar estilos pill-shaped o esquinas 6px con relleno mint `#00FFBF` y texto `#070B11` font-bold para CTAs primarios. Botones secundarios en `#141C2E` con borde `#1E293B` y texto `#F8FAFC`.",
+    "tables": "Tablas densas con `p-2.5` en celdas, cabeceras en `font-mono text-xs uppercase text-slate-400 bg-slate-900/80`, bordes delgados `#1E293B`, números alineados a la derecha con font-mono.",
+    "inputs": "Inputs con fondo `#0D131F`, borde `#1E293B`, focus:border-[#00FFBF] focus:ring-1 focus:ring-[#00FFBF], texto slate-100.",
+    "badges": "Badges redondeadas de `font-mono text-xs px-2 py-0.5 rounded-full` con colores pastel oscuros (ej. Mint: bg-emerald-950/80 text-emerald-300 border border-emerald-800/50).",
+    "toasts": "Notificaciones mediante Sonner en la esquina inferior derecha, estilo dark con detalles mint."
+  },
+  "data_testid_convention": {
+    "rule": "Todos los elementos interactivos e informativos clave DEBEN incluir data-testid en kebab-case.",
+    "examples": [
+      "data-testid='global-filter-project-select'",
+      "data-testid='global-filter-date-range'",
+      "data-testid='kpi-total-credits'",
+      "data-testid='kpi-total-cost-eur'",
+      "data-testid='budget-progress-bar'",
+      "data-testid='budget-warning-alert'",
+      "data-testid='quick-add-cronos-input'",
+      "data-testid='quick-add-submit-button'",
+      "data-testid='records-table'",
+      "data-testid='export-csv-button'",
+      "data-testid='reconcile-paste-textarea'",
+      "data-testid='reconcile-parse-button'",
+      "data-testid='apply-reconcile-button'",
+      "data-testid='save-settings-button'",
+      "data-testid='google-login-button'"
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Asegúrate de implementar todas las páginas mencionadas con datos simulados (mocking) enriquecidos y realistas que representen proyectos y tareas reales de agencias de IA.",
+    "Sigue estrictamente la paleta oscura sin gradientes morados y con el color acento verde menta #00FFBF.",
+    "Utiliza tipografía monoespaciada para todas las tablas de cifras, créditos, importes en euros y tags.",
+    "Garantiza que toda la interfaz de usuario esté completamente en español.",
+    "Añade atribución data-testid en todos los botones, inputs, métricas KPI, alertas y enlaces de navegación.",
+    "Instala o usa iconos de lucide-react y gráficos de recharts."
+  ]
+}
