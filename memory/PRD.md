@@ -23,6 +23,7 @@ App web interna de Disruptivos para registrar y analizar tiempo, mensajes y cré
 - Páginas: /login, / (panel), /registro, /cuadrar, /ajustes (admin).
 - Tests: iteration_1 → backend 44/44, frontend 100% flujos críticos.
 - (2026-10-01) Gráfica diaria con series de minutos y mensajes (eje derecho, toggles). Cuadre desde CSV subido/arrastrado: detección de columnas fecha/créditos por cabecera con fallback al parser de texto; `format` en la respuesta de preview.
+- (2026-10-01) Comparativa mensual en el panel (`stats.monthly` con Δ% vs mes anterior), historial de cuadres en /cuadrar (GET /statements), topes de créditos por fase (`cronos_settings.phase_goals`, formulario en Ajustes, fases excedidas en rojo en el panel).
 
 ## Backlog
 - P1: debounce en digest/send; paginación del registro si crece mucho.

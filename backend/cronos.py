@@ -23,7 +23,7 @@ TYPES = ["desarrollo", "corrección", "consulta", "pruebas"]
 PHASES = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "otra"]
 SOURCES = ["estimado", "confirmado", "importado"]
 LINE_FORMAT = "#cronos | título | tipo | fase | minutos | mensajes | créditos [| proyecto]"
-DEFAULT_SETTINGS = {"price_per_credit_eur": 0.01, "monthly_budget_credits": 5000, "alerts_sent": {}}
+DEFAULT_SETTINGS = {"price_per_credit_eur": 0.01, "monthly_budget_credits": 5000, "alerts_sent": {}, "phase_goals": {}}
 ENTRY_FIELDS = ["title", "project", "type", "phase", "date", "minutes", "messages", "credits",
                 "source", "notes", "estimated_credits"]
 NO_ID = {"_id": 0}
@@ -146,6 +146,16 @@ def compute_stats(entries: list, price: float) -> dict:
     for d in daily:
         d["date"] = d.pop("key")
     top = sorted(entries, key=lambda e: -float(e.get("credits") or 0))[:8]
+    monthly = []
+    for m in sorted(agg([{**e, "month": str(e.get("date", ""))[:7]} for e in entries], "month", price), key=lambda x: x["key"]):
+        m["month"] = m.pop("key")
+        m["hours"] = round(m["minutes"] / 60, 2)
+        if monthly:
+            prev = monthly[-1]["credits"]
+            m["delta_pct"] = round((m["credits"] - prev) / prev * 100, 1) if prev else None
+        else:
+            m["delta_pct"] = None
+        monthly.append(m)
     return {
         "count": n, "credits": credits, "cost_eur": round(credits * price, 2),
         "minutes": minutes, "hours": round(minutes / 60, 2), "messages": messages,
@@ -156,7 +166,7 @@ def compute_stats(entries: list, price: float) -> dict:
         "comparison": {"correccion": corr, "desarrollo": dev,
                        "correccion_pct": round(corr["credits"] / tot * 100, 1) if tot else 0},
         "by_type": agg(entries, "type", price), "by_phase": agg(entries, "phase", price),
-        "by_source": agg(entries, "source", price), "daily": daily, "top": top,
+        "by_source": agg(entries, "source", price), "daily": daily, "top": top, "monthly": monthly,
         "price_per_credit_eur": price,
     }
 
@@ -576,6 +586,7 @@ class ImportIn(BaseModel):
 class SettingsIn(BaseModel):
     price_per_credit_eur: Optional[float] = Field(ge=0, default=None)
     monthly_budget_credits: Optional[float] = Field(ge=0, default=None)
+    phase_goals: Optional[dict] = None
 
 
 class ProjectIn(BaseModel):
@@ -747,12 +758,23 @@ async def import_data(body: ImportIn, request: Request, user=Depends(require_adm
 async def read_settings(user=Depends(get_current_user)):
     s = await get_settings()
     return {"price_per_credit_eur": s["price_per_credit_eur"], "monthly_budget_credits": s["monthly_budget_credits"],
+            "phase_goals": s.get("phase_goals") or {},
             "alerts_sent": s.get("alerts_sent") or {}, "digest_recipients": digest_recipients(), "admin_emails": sorted(admin_emails())}
 
 
 @router.put("/settings")
 async def update_settings(body: SettingsIn, request: Request, user=Depends(require_admin)):
     changes = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "phase_goals" in changes:
+        goals = {}
+        for k, v in changes["phase_goals"].items():
+            if k not in PHASES:
+                raise HTTPException(422, f"Fase no válida en objetivos: {k}")
+            if v is not None and v != "":
+                if float(v) < 0:
+                    raise HTTPException(422, "El objetivo por fase no puede ser negativo")
+                goals[k] = float(v)
+        changes["phase_goals"] = goals
     for k, v in changes.items():
         await set_setting(k, v)
     await audit(user["email"], "settings_update", "settings", ", ".join(f"{k}={v}" for k, v in changes.items()), request)

@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { CheckCheck, Search, Upload } from "lucide-react";
+import { CheckCheck, History, Search, Upload } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { api, errMsg } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -10,6 +10,36 @@ import { fmtCredits, fmtDate } from "@/lib/format";
 const EXAMPLE = `2026-10-01 09:12  Agente Emergent · Central Disruptivos   640,5 créditos
 01/10/2026 18:40  Agente Emergent · Cronos                  52 cr
 2026-09-30        Agente Emergent                           195.3`;
+
+function StatementsHistory() {
+  const { data: statements = [] } = useQuery({ queryKey: ["statements"], queryFn: () => api.get("/cronos/statements").then((r) => r.data) });
+  const total = statements.reduce((a, s) => a + s.credits, 0);
+  return (
+    <div className="panel overflow-x-auto" data-testid="statements-history">
+      <div className="flex items-center justify-between p-4 pb-2">
+        <div className="mono-label flex items-center gap-1.5"><History size={12} /> Historial de cuadres</div>
+        <div className="font-mono text-xs text-slate-500">{statements.length} días · {fmtCredits(total)} cr reales</div>
+      </div>
+      {statements.length === 0 ? (
+        <div className="px-4 pb-4 font-mono text-xs text-slate-600" data-testid="statements-empty">Todavía no se ha cuadrado ningún día</div>
+      ) : (
+        <table className="w-full min-w-[560px]">
+          <thead><tr><th className="th">Día</th><th className="th text-right">Créditos reales</th><th className="th">Cuadrado por</th><th className="th">Fecha de cuadre</th></tr></thead>
+          <tbody>
+            {statements.map((s) => (
+              <tr key={s.date} className="hover:bg-surface-subtle/60" data-testid={`statement-row-${s.date}`}>
+                <td className="td font-mono text-sm">{fmtDate(s.date)}</td>
+                <td className="td text-right font-mono text-sm font-semibold text-mint">{fmtCredits(s.credits)}</td>
+                <td className="td font-mono text-xs text-slate-300">{s.by}</td>
+                <td className="td font-mono text-xs text-slate-500">{s.imported_at?.slice(0, 16).replace("T", " ")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
 
 export default function Cuadrar() {
   const { isAdmin } = useAuth();
@@ -168,6 +198,8 @@ export default function Cuadrar() {
           {result.unassigned_days.length > 0 && <div className="mt-2 font-mono text-xs text-slate-400">Sin tareas: {result.unassigned_days.map(fmtDate).join(", ")}</div>}
         </div>
       )}
+
+      <StatementsHistory />
     </div>
   );
 }

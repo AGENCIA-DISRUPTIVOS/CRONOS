@@ -8,6 +8,7 @@ import { DailyChart } from "@/components/dashboard/DailyChart";
 import { Breakdowns, Comparison } from "@/components/dashboard/Breakdowns";
 import { TopTasks } from "@/components/dashboard/TopTasks";
 import { ProjectCards } from "@/components/dashboard/ProjectCards";
+import { MonthlyTrend } from "@/components/dashboard/MonthlyTrend";
 
 export default function Dashboard() {
   const [filters, setFilters] = useState(EMPTY_FILTERS);
@@ -18,6 +19,7 @@ export default function Dashboard() {
   });
   const { data: budget } = useQuery({ queryKey: ["budget"], queryFn: () => api.get("/cronos/budget").then((r) => r.data) });
   const { data: projects = [] } = useQuery({ queryKey: ["projects"], queryFn: () => api.get("/cronos/projects").then((r) => r.data) });
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: () => api.get("/cronos/settings").then((r) => r.data) });
 
   return (
     <div className="space-y-5" data-testid="dashboard-page">
@@ -39,8 +41,9 @@ export default function Dashboard() {
             <div className="lg:col-span-4"><Comparison comparison={stats.comparison} /></div>
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <Breakdowns stats={stats} />
+            <Breakdowns stats={stats} phaseGoals={settings?.phase_goals} />
           </div>
+          <MonthlyTrend monthly={stats.monthly || []} />
           <TopTasks top={stats.top} price={stats.price_per_credit_eur} />
           <ProjectCards projects={projects} />
         </>

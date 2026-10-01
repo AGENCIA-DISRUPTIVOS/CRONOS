@@ -1,33 +1,43 @@
 import { fmtCredits, fmtEur, fmtNum, PHASE_COLORS, TYPE_COLORS } from "@/lib/format";
 
-function Bars({ title, rows, colorFor, testId }) {
-  const max = Math.max(...rows.map((r) => r.credits), 1);
+function Bars({ title, rows, colorFor, testId, goals }) {
+  const max = Math.max(...rows.map((r) => Math.max(r.credits, goals?.[r.key] || 0)), 1);
   return (
     <div className="panel p-4" data-testid={testId}>
       <div className="mono-label mb-3">{title}</div>
       {rows.length === 0 && <div className="font-mono text-xs text-slate-600">sin datos</div>}
       <div className="space-y-2.5">
-        {rows.map((r, i) => (
-          <div key={r.key} data-testid={`${testId}-row-${r.key}`}>
-            <div className="flex items-baseline justify-between font-mono text-xs">
-              <span className="text-slate-300">{r.key} <span className="text-slate-600">×{r.count}</span></span>
-              <span className="text-slate-100">{fmtCredits(r.credits)} cr <span className="text-slate-500">· {fmtEur(r.cost_eur)}</span></span>
+        {rows.map((r, i) => {
+          const goal = goals?.[r.key];
+          const over = goal != null && r.credits > goal;
+          return (
+            <div key={r.key} data-testid={`${testId}-row-${r.key}`} className={over ? "rounded-md bg-red-500/10 px-1.5 py-1 -mx-1.5" : ""}>
+              <div className="flex items-baseline justify-between font-mono text-xs">
+                <span className={over ? "text-red-300" : "text-slate-300"}>
+                  {r.key} <span className="text-slate-600">×{r.count}</span>
+                  {over && <span className="ml-2 rounded-full border border-red-500/50 px-1.5 text-[10px] uppercase text-red-300" data-testid={`${testId}-over-${r.key}`}>excedido</span>}
+                </span>
+                <span className={over ? "text-red-300" : "text-slate-100"}>
+                  {fmtCredits(r.credits)}{goal != null && <span className="text-slate-500"> / {fmtCredits(goal)}</span>} cr <span className="text-slate-500">· {fmtEur(r.cost_eur)}</span>
+                </span>
+              </div>
+              <div className="relative mt-1 h-1.5 rounded-full bg-surface-subtle">
+                <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${(r.credits / max) * 100}%`, background: over ? "#EF4444" : colorFor(r.key, i) }} />
+                {goal != null && <div className="absolute inset-y-[-2px] w-px bg-slate-300" style={{ left: `${(goal / max) * 100}%` }} title={`Tope ${fmtCredits(goal)} cr`} />}
+              </div>
             </div>
-            <div className="mt-1 h-1.5 rounded-full bg-surface-subtle">
-              <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${(r.credits / max) * 100}%`, background: colorFor(r.key, i) }} />
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
 }
 
-export function Breakdowns({ stats }) {
+export function Breakdowns({ stats, phaseGoals }) {
   return (
     <>
       <Bars title="Por tipo" rows={stats.by_type} colorFor={(k) => TYPE_COLORS[k] || "#64748B"} testId="breakdown-type" />
-      <Bars title="Por fase" rows={stats.by_phase} colorFor={(_, i) => PHASE_COLORS[i % PHASE_COLORS.length]} testId="breakdown-phase" />
+      <Bars title="Por fase" rows={stats.by_phase} colorFor={(_, i) => PHASE_COLORS[i % PHASE_COLORS.length]} testId="breakdown-phase" goals={phaseGoals} />
       <Bars title="Por origen" rows={stats.by_source} colorFor={(k) => ({ estimado: "#F59E0B", confirmado: "#00FFBF", importado: "#06B6D4" }[k] || "#64748B")} testId="breakdown-source" />
     </>
   );

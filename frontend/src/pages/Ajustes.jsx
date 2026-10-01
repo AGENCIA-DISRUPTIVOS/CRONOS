@@ -45,6 +45,40 @@ function SettingsForm({ settings, onSaved }) {
   );
 }
 
+function PhaseGoals({ settings, onSaved }) {
+  const PH = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "otra"];
+  const [goals, setGoals] = useState({});
+  useEffect(() => {
+    if (settings) setGoals(Object.fromEntries(PH.map((p) => [p, settings.phase_goals?.[p] ?? ""])));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings]);
+  const save = async (e) => {
+    e.preventDefault();
+    try {
+      await api.put("/cronos/settings", { phase_goals: Object.fromEntries(Object.entries(goals).map(([k, v]) => [k, v === "" ? null : Number(v)])) });
+      toast.success("Topes por fase guardados");
+      onSaved();
+    } catch (err) {
+      toast.error(errMsg(err));
+    }
+  };
+  return (
+    <form onSubmit={save} className="panel p-4" data-testid="phase-goals-form">
+      <div className="mono-label mb-1">Topes de créditos por fase</div>
+      <p className="mb-3 text-xs text-slate-500">Las fases que superen su tope se marcan en rojo en el panel. Deja vacío para no limitar.</p>
+      <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
+        {PH.map((p) => (
+          <label key={p} className="flex flex-col gap-1">
+            <span className="mono-label">{p}</span>
+            <input data-testid={`phase-goal-input-${p}`} type="number" min="0" step="1" placeholder="—" className="field px-2 font-mono text-xs" value={goals[p] ?? ""} onChange={(e) => setGoals((g) => ({ ...g, [p]: e.target.value }))} />
+          </label>
+        ))}
+      </div>
+      <button className="btn-primary mt-3" data-testid="save-phase-goals-button"><Save size={14} /> Guardar topes</button>
+    </form>
+  );
+}
+
 function Projects({ projects, onChange }) {
   const [draft, setDraft] = useState({ name: "", monthly_goal_credits: "", goal_credits: "", color: "#00FFBF" });
   const [edits, setEdits] = useState({});
@@ -186,6 +220,7 @@ export default function Ajustes() {
         <SettingsForm settings={settings} onSaved={refresh} />
         <Digest settings={settings} />
       </div>
+      <PhaseGoals settings={settings} onSaved={refresh} />
       <Projects projects={projects} onChange={refresh} />
       <AuditLog />
     </div>
