@@ -43,7 +43,8 @@ Tabla con cada persona del workspace: tareas, créditos, €, horas, mensajes, c
 5. El **historial de cuadres** muestra qué días están ya cuadrados, con qué cifra y quién lo hizo.
 
 ## 6. Wiki de iteraciones
-- La Wiki se abre en **Documento general**: toda la documentación de cada proyecto en una sola página continua, en orden cronológico, con índice lateral para saltar a cada apartado. Filtra por proyecto o busca por texto. Cada apartado tiene botones para editarlo o abrir su ficha individual.
+- La Wiki se abre en **Documento general**: por cada proyecto, un **documento global** estilo post (resumen ejecutivo, qué hemos construido por áreas, cómo lo hemos hecho, próximos pasos) con las cifras del proyecto en vivo (tareas, horas, créditos, €) y un índice lateral. Las iteraciones y fichas individuales quedan plegadas tras «Ver iteraciones y fichas»; desde el índice puedes saltar a una concreta.
+- El documento global lo mantiene el agente al cerrar cada iteración y cualquier usuario puede editarlo (Markdown con vista previa, estado «borrador pendiente de revisión» / «revisado», historial de 10 versiones). «Regenerar con IA» lo sintetiza a partir de todas las fichas del proyecto (consume créditos) y lo deja en el editor para revisarlo antes de guardar.
 - La pestaña **Fichas** muestra las tarjetas sueltas (con filtro por etiqueta) para consultar un documento concreto.
 - Cada mejora de la app queda documentada en la **Wiki** (el agente crea la entrada al cerrar la tarea, origen «agente»).
 - Las tareas **importadas** de otras apps (p. ej. el histórico de Central Disruptivos) generan automáticamente su documento (origen «importado») con la ficha de la tarea y una sección «Qué se ha hecho» pendiente de completar. `POST /api/cronos/import` admite además una lista `wiki: [...]` para traer la documentación ya escrita; y `POST /api/cronos/wiki/backfill` (admin) crea los documentos que falten.

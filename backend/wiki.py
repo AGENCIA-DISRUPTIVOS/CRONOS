@@ -174,6 +174,74 @@ async def generate_wiki(body: GenerateIn, request: Request, user=Depends(get_cur
             "entry_id": body.entry_id, "model_used": "claude-sonnet-5-5"}
 
 
+class OverviewIn(BaseModel):
+    project: str = Field(min_length=1)
+    content: str = ""
+    status: str = "borrador"
+
+
+class OverviewGenIn(BaseModel):
+    project: str = Field(min_length=1)
+
+
+async def project_stats(project: str) -> dict:
+    s = {d["key"]: d["value"] for d in await db.cronos_settings.find({}, NO_ID).to_list(50)}
+    price = float(s.get("price_per_credit_eur") or 0)
+    entries = await db.cronos_entries.find({"project": project}, {"_id": 0, "credits": 1, "minutes": 1, "messages": 1, "date": 1, "type": 1}).to_list(20000)
+    credits = round(sum(float(e.get("credits") or 0) for e in entries), 2)
+    minutes = sum(int(e.get("minutes") or 0) for e in entries)
+    dates = sorted(e["date"] for e in entries if e.get("date"))
+    corr = sum(1 for e in entries if e.get("type") == "corrección")
+    return {"count": len(entries), "minutes": minutes, "hours": round(minutes / 60, 1), "messages": sum(int(e.get("messages") or 0) for e in entries),
+            "credits": credits, "cost_eur": round(credits * price, 2), "corrections": corr,
+            "first_date": dates[0] if dates else None, "last_date": dates[-1] if dates else None}
+
+
+@router.get("/wiki-overview")
+async def get_overview(project: str, user=Depends(get_current_user)):
+    doc = await db.cronos_wiki_overview.find_one({"project": project}, {"_id": 0, "history": 0})
+    return {"project": project, "overview": doc, "stats": await project_stats(project)}
+
+
+@router.put("/wiki-overview")
+async def put_overview(body: OverviewIn, request: Request, user=Depends(get_current_user)):
+    old = await db.cronos_wiki_overview.find_one({"project": body.project}, NO_ID)
+    status = body.status if body.status in ("borrador", "revisado") else "borrador"
+    upd = {"project": body.project, "content": body.content, "status": status, "updated_at": now_iso(), "updated_by": user["email"]}
+    ops: dict = {"$set": upd, "$setOnInsert": {"created_at": now_iso(), "created_by": user["email"]}}
+    if old:
+        ops["$push"] = {"history": {"$each": [{"at": old.get("updated_at"), "by": old.get("updated_by"), "content": old.get("content")}], "$slice": -10}}
+    await db.cronos_wiki_overview.update_one({"project": body.project}, ops, upsert=True)
+    await audit(user["email"], "wiki_overview_update", body.project, status, request)
+    return await db.cronos_wiki_overview.find_one({"project": body.project}, {"_id": 0, "history": 0})
+
+
+OVERVIEW_PROMPT = (
+    "Eres el documentador técnico de Cronos Disruptivos (agencia Disruptivos). Escribes en español (es-ES), en Markdown, "
+    "con tono divulgativo-técnico para el equipo, como un post de blog de 600 a 1000 palabras. Devuelve SOLO el Markdown. "
+    "Estructura obligatoria con H2: 'Resumen ejecutivo', 'Qué hemos construido' (agrupado por áreas funcionales, NUNCA por fases ni "
+    "por tareas sueltas), 'Cómo lo hemos hecho' (narrativa extendida, decisiones y enfoque), 'Próximos pasos'. "
+    "No incluyas cifras de créditos u horas (se muestran aparte) ni un índice de iteraciones (se genera aparte). "
+    "Si la información es escasa, redacta igualmente un borrador coherente y señala al final qué conviene revisar."
+)
+
+
+@router.post("/wiki-overview/generate")
+async def generate_overview(body: OverviewGenIn, request: Request, user=Depends(get_current_user)):
+    docs = await db.cronos_wiki.find({"project": body.project}, {"_id": 0, "title": 1, "content": 1, "created_at": 1}).sort("created_at", 1).to_list(200)
+    if not docs:
+        raise HTTPException(400, "El proyecto no tiene documentación de la que partir")
+    parts = [f"### {d['title']} ({(d.get('created_at') or '')[:10]})\n{(d.get('content') or '')[:2500]}" for d in docs]
+    chat = LlmChat(api_key=LLM_KEY, session_id=f"overview-{uuid.uuid4().hex[:8]}", system_message=OVERVIEW_PROMPT).with_model("anthropic", "claude-sonnet-5-5")
+    try:
+        text = await chat.send_message(UserMessage(text=f"Proyecto: {body.project}. Redacta el documento global a partir de estas fichas de iteración:\n\n" + "\n\n".join(parts)))
+    except Exception as e:
+        logger.error(f"Generación de resumen global fallida: {e}")
+        raise HTTPException(502, "No se pudo generar el documento global con IA")
+    await audit(user["email"], "wiki_overview_generate", body.project, f"{len(docs)} fichas", request)
+    return {"content": (text or "").strip(), "model_used": "claude-sonnet-5-5", "docs_used": len(docs)}
+
+
 @router.get("/instructions")
 async def instructions(user=Depends(get_current_user)):
     if not INSTRUCTIONS_PATH.exists():
