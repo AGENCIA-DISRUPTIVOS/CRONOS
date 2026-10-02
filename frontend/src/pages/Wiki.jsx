@@ -6,6 +6,7 @@ import { ArrowLeft, Bot, Eye, Pencil, Plus, Search, Sparkles, Trash2 } from "luc
 import { api, errMsg } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Markdown } from "@/components/Markdown";
+import { WikiGeneral } from "@/components/WikiGeneral";
 
 const SOURCE_STYLE = { manual: "border-border text-slate-400", agente: "border-mint/40 text-mint", ia: "border-purple-500/50 text-purple-300", importado: "border-cyan-700/50 text-cyan-300" };
 const EMPTY = { title: "", content: "", tags: "", project: "", entry_id: null, source: "manual" };
@@ -128,6 +129,7 @@ export default function Wiki() {
   const [q, setQ] = useState("");
   const [tag, setTag] = useState("");
   const [project, setProject] = useState(searchParams.get("project") || "");
+  const [tab, setTab] = useState(searchParams.get("tab") === "fichas" ? "fichas" : "general");
   const entryParam = searchParams.get("entry");
   const { data: meta } = useQuery({ queryKey: ["meta"], queryFn: () => api.get("/cronos/meta").then((r) => r.data) });
   const { data: docs = [], isLoading } = useQuery({ queryKey: ["wiki-list", q, tag, project], queryFn: () => api.get("/cronos/wiki", { params: { q: q || undefined, tag: tag || undefined, project: project || undefined } }).then((r) => r.data) });
@@ -140,7 +142,7 @@ export default function Wiki() {
       setSearchParams({}, { replace: true });
     });
   }, [entryParam, setSearchParams]);
-  const back = () => { qc.invalidateQueries({ queryKey: ["wiki-list"] }); qc.invalidateQueries({ queryKey: ["wiki-tags"] }); qc.invalidateQueries({ queryKey: ["wiki"] }); setMode({ view: "list", id: null, initial: null }); };
+  const back = () => { qc.invalidateQueries({ queryKey: ["wiki-list"] }); qc.invalidateQueries({ queryKey: ["wiki-full"] }); qc.invalidateQueries({ queryKey: ["wiki-tags"] }); qc.invalidateQueries({ queryKey: ["wiki"] }); setMode({ view: "list", id: null, initial: null }); };
 
   return (
     <div className="space-y-4" data-testid="wiki-page">
@@ -156,16 +158,25 @@ export default function Wiki() {
       {mode.view === "list" && (
         <>
           <div className="panel flex flex-wrap items-center gap-2 p-3">
-            <div className="relative flex-1"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" /><input data-testid="wiki-search-input" className="field pl-9" placeholder="Buscar en títulos, contenido y etiquetas…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+            <div className="flex rounded-md border border-border p-0.5" data-testid="wiki-tabs">
+              {[["general", "Documento general"], ["fichas", "Fichas"]].map(([k, l]) => (
+                <button key={k} data-testid={`wiki-tab-${k}`} onClick={() => setTab(k)} className={`rounded px-3 py-1.5 font-mono text-xs transition-colors ${tab === k ? "bg-mint/15 text-mint" : "text-slate-400 hover:text-slate-100"}`}>{l}</button>
+              ))}
+            </div>
+            <div className="relative min-w-[200px] flex-1"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" /><input data-testid="wiki-search-input" className="field pl-9" placeholder="Buscar en títulos, contenido y etiquetas…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
             <select data-testid="wiki-project-select" className="field w-auto font-mono text-xs" value={project} onChange={(e) => setProject(e.target.value)}>
               <option value="">todos los proyectos</option>
               {(meta?.projects || []).map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
-            <select data-testid="wiki-tag-select" className="field w-auto font-mono text-xs" value={tag} onChange={(e) => setTag(e.target.value)}>
-              <option value="">todas las etiquetas</option>
-              {tags.map((t) => <option key={t} value={t}>#{t}</option>)}
-            </select>
+            {tab === "fichas" && (
+              <select data-testid="wiki-tag-select" className="field w-auto font-mono text-xs" value={tag} onChange={(e) => setTag(e.target.value)}>
+                <option value="">todas las etiquetas</option>
+                {tags.map((t) => <option key={t} value={t}>#{t}</option>)}
+              </select>
+            )}
           </div>
+          {tab === "general" && <WikiGeneral project={project} q={q} onOpen={(id) => setMode({ view: "doc", id, initial: null })} onEdit={(doc) => setMode({ view: "edit", id: doc.id, initial: doc })} />}
+          {tab === "fichas" && (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" data-testid="wiki-list">
             {isLoading && <div className="font-mono text-xs text-slate-500">cargando…</div>}
             {!isLoading && docs.length === 0 && <div className="font-mono text-xs text-slate-500" data-testid="wiki-empty">Todavía no hay documentos</div>}
@@ -184,6 +195,7 @@ export default function Wiki() {
               </button>
             ))}
           </div>
+          )}
         </>
       )}
     </div>

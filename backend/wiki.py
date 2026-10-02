@@ -50,7 +50,8 @@ class GenerateIn(BaseModel):
 
 
 @router.get("/wiki")
-async def list_wiki(q: Optional[str] = None, project: Optional[str] = None, tag: Optional[str] = None, entry_id: Optional[str] = None, user=Depends(get_current_user)):
+async def list_wiki(q: Optional[str] = None, project: Optional[str] = None, tag: Optional[str] = None, entry_id: Optional[str] = None,
+                    full: bool = False, user=Depends(get_current_user)):
     query: dict = {}
     if project:
         query["project"] = project
@@ -60,7 +61,9 @@ async def list_wiki(q: Optional[str] = None, project: Optional[str] = None, tag:
         query["entry_id"] = entry_id
     if q:
         query["$or"] = [{"title": {"$regex": q, "$options": "i"}}, {"content": {"$regex": q, "$options": "i"}}, {"tags": {"$regex": q, "$options": "i"}}]
-    docs = await db.cronos_wiki.find(query, NO_ID).sort("updated_at", -1).to_list(500)
+    docs = await db.cronos_wiki.find(query, {"_id": 0, "history": 0}).sort("updated_at", -1).to_list(500)
+    if full:
+        return docs
     for d in docs:
         d["excerpt"] = (d.get("content") or "")[:220]
         d.pop("content", None)
