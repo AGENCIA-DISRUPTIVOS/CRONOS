@@ -23,7 +23,7 @@ App web interna de Disruptivos para registrar y analizar tiempo, mensajes y cré
 - Páginas: /login, / (panel), /registro, /cuadrar, /ajustes (admin).
 - Tests: iteration_1 → backend 44/44, frontend 100% flujos críticos.
 - (2026-10-01) Gráfica diaria con series de minutos y mensajes (eje derecho, toggles). Cuadre desde CSV subido/arrastrado: detección de columnas fecha/créditos por cabecera con fallback al parser de texto; `format` en la respuesta de preview.
-- (2026-10-01) Comparativa mensual en el panel (`stats.monthly` con Δ% vs mes anterior), historial de cuadres en /cuadrar (GET /statements), topes de créditos por fase (`cronos_settings.phase_goals`, formulario en Ajustes, fases excedidas en rojo en el panel).
+- (2026-10-02) Multiusuario: campos `user`/`model` en entradas, permisos por propietario (viewers crean/editan las suyas), página /equipo (`GET /users`), desgloses por modelo/usuario, filtros, CSV. Wiki (`cronos_wiki`, `wiki.py`): CRUD Markdown con historial, búsqueda, etiquetas, «Documentar con IA» (claude-sonnet-5-5 vía EMERGENT_LLM_KEY). Guía (/instrucciones) renderiza `/app/instrucciones.md`. Lista de modelos editable en Ajustes. Convención: el agente registra la tarea y crea la entrada wiki (source `agente`) al cerrar cada iteración, usando el token admin local `test_session_e1`. (`stats.monthly` con Δ% vs mes anterior), historial de cuadres en /cuadrar (GET /statements), topes de créditos por fase (`cronos_settings.phase_goals`, formulario en Ajustes, fases excedidas en rojo en el panel).
 
 ## Backlog
 - P1: debounce en digest/send; paginación del registro si crece mucho.

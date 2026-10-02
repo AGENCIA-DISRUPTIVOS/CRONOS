@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 2 testing: 28/28 backend tests passed (meta, parse-line, per-user permissions, users overview, stats breakdowns/filters, CSV header, settings models dedup, wiki CRUD, wiki AI generate called ONCE, instructions). Full frontend flows exercised with Playwright for admin and viewer (Equipo navigation, Registro new entry with model=GPT-5, Wiki CRUD + AI panel, Instrucciones, Dashboard breakdowns + model filter). All critical acceptance criteria pass. One cosmetic hydration warning stemming from Visual-Edits dev wrapper (span inside option).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/wiki (and others with <select>)", "issues": ["React hydration warning in dev console: '<span> cannot be a child of <option>'. Caused by Visual Edits dev wrapper injecting <span data-ve-dynamic> inside dynamic <option> elements (e.g. wiki-tag-select P1 option, filter-* selects). Not functionally breaking but should be suppressed for clean console."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration2.py",
+    "/app/test_reports/pytest/iter2_results.xml"
+  ],
+  "action_items": [
+    "Optional: silence Visual-Edits wrapper on <option> children (span inside option) to clear the hydration warning in Wiki/FiltersBar selects."
+  ],
+  "critical_code_review_comments": [
+    "wiki.py uses model id 'claude-sonnet-5-5' which is non-standard but the Emergent LLM gateway accepts it (observed 200 response); worth confirming it maps to a real model and not silently falling back.",
+    "cronos.py EntryIn.user defaults to None; create_entry correctly forces viewer email and admin can override — good.",
+    "wiki PATCH returns the full doc including 'history'; create returns a copy without history — asymmetric but acceptable.",
+    "Users overview includes role via role_for(email) which only recognises ADMIN_EMAILS; verified correct for test accounts."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration2.py (new)"
+  ],
+  "success_rate": {"backend": "100% (28/28)", "frontend": "100% of listed flows"},
+  "test_credentials": "ADMIN session_token=test_session_e1 (fran.gomez@disruptivos.com), VIEWER session_token=test_session_viewer (viewer.test@disruptivos.com). Both left in place as instructed.",
+  "seed_data_creation": "No persistent seed added. All TEST_ entries and TEST_ wiki docs cleaned up after tests. The one-time wiki/generate call created no persisted doc (endpoint returns markdown only).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend regression file: /app/backend/tests/test_iteration2.py plus pre-existing /app/backend/tests/backend_test.py (iteration 1). pytest.ini forces -n 2 --dist loadscope; run sequentially with 'pytest -n 0' if dependencies between classes matter. The wiki/generate endpoint consumes real credits — guard any new tests to call it at most once. Visual-Edits wrapper injects spans into dynamic <option> elements; purely cosmetic. filter-user-select auto-populates from ?user= query param correctly, but requires ~1-2s for meta to load the option list before input_value returns the right value in Playwright.",
+  "rca of the issue": "No critical issues identified. Hydration warning RCA: Visual-Edits runtime wraps array-mapped children in <span data-ve-dynamic style='display:contents'>, which is illegal inside <option>. Fix would be in the Visual-Edits dev plugin (not app code) or suppress the warning."
+}
