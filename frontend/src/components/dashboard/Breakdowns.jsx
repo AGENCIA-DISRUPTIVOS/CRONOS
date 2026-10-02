@@ -43,6 +43,17 @@ export function Breakdowns({ stats, phaseGoals }) {
   );
 }
 
+export function ModelUserBreakdowns({ stats }) {
+  const short = (k) => (k.includes("@") ? k.split("@")[0] : k);
+  const rows = (list) => list.map((r) => ({ ...r, key: r.key }));
+  return (
+    <>
+      <Bars title="Por modelo de IA" rows={rows(stats.by_model || [])} colorFor={(_, i) => PHASE_COLORS[(i + 2) % PHASE_COLORS.length]} testId="breakdown-model" />
+      <Bars title="Por usuario" rows={(stats.by_user || []).map((r) => ({ ...r, key: short(r.key) }))} colorFor={(_, i) => PHASE_COLORS[(i + 4) % PHASE_COLORS.length]} testId="breakdown-user" />
+    </>
+  );
+}
+
 export function Comparison({ comparison }) {
   const { correccion: c, desarrollo: d, correccion_pct } = comparison;
   const Col = ({ label, b, color, testId }) => (

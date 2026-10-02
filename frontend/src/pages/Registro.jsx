@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Download, Pencil, Plus, Trash2, Wand2 } from "lucide-react";
@@ -48,9 +49,11 @@ function QuickAdd({ meta, onDraft }) {
 }
 
 export default function Registro() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, user: me } = useAuth();
+  const [searchParams] = useSearchParams();
   const qc = useQueryClient();
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [filters, setFilters] = useState({ ...EMPTY_FILTERS, user: searchParams.get("user") || "" });
+  const canEdit = (e) => isAdmin || e.user === me?.email || e.created_by === me?.email;
   const [dialog, setDialog] = useState({ open: false, initial: null });
   const [toDelete, setToDelete] = useState(null);
   const { data: meta } = useQuery({ queryKey: ["meta"], queryFn: () => api.get("/cronos/meta").then((r) => r.data) });
@@ -93,26 +96,24 @@ export default function Registro() {
         </div>
         <div className="flex gap-2">
           <button data-testid="export-csv-button" className="btn-secondary" onClick={exportCsv}><Download size={14} /> CSV</button>
-          {isAdmin && (
-            <button data-testid="new-entry-button" className="btn-primary" onClick={() => setDialog({ open: true, initial: null })}><Plus size={14} /> Nueva</button>
-          )}
+          <button data-testid="new-entry-button" className="btn-primary" onClick={() => setDialog({ open: true, initial: null })}><Plus size={14} /> Nueva</button>
         </div>
       </div>
-      {isAdmin && <QuickAdd meta={meta} onDraft={(draft) => setDialog({ open: true, initial: draft })} />}
+      <QuickAdd meta={meta} onDraft={(draft) => setDialog({ open: true, initial: draft })} />
       <FiltersBar filters={filters} setFilters={setFilters} meta={meta} />
 
       <div className="panel overflow-x-auto">
-        <table className="w-full min-w-[980px] border-collapse" data-testid="records-table">
+        <table className="w-full min-w-[1180px] border-collapse" data-testid="records-table">
           <thead>
             <tr>
-              <th className="th">Fecha</th><th className="th">Título</th><th className="th">Proyecto</th><th className="th">Tipo</th><th className="th">Fase</th>
+              <th className="th">Fecha</th><th className="th">Título</th><th className="th">Proyecto</th><th className="th">Usuario</th><th className="th">Modelo</th><th className="th">Tipo</th><th className="th">Fase</th>
               <th className="th text-right">Min</th><th className="th text-right">Msg</th><th className="th text-right">Créditos</th><th className="th text-right">€</th><th className="th">Origen</th>
-              {isAdmin && <th className="th" />}
+              <th className="th" />
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td className="td font-mono text-xs text-slate-500" colSpan={11}>cargando…</td></tr>}
-            {!isLoading && entries.length === 0 && <tr><td className="td font-mono text-xs text-slate-500" colSpan={11} data-testid="records-empty">Sin entradas para estos filtros</td></tr>}
+            {isLoading && <tr><td className="td font-mono text-xs text-slate-500" colSpan={13}>cargando…</td></tr>}
+            {!isLoading && entries.length === 0 && <tr><td className="td font-mono text-xs text-slate-500" colSpan={13} data-testid="records-empty">Sin entradas para estos filtros</td></tr>}
             {entries.map((e) => (
               <tr key={e.id} className="group transition-colors hover:bg-surface-subtle/60" data-testid={`record-row-${e.id}`}>
                 <td className="td whitespace-nowrap font-mono text-xs text-slate-400">{fmtDate(e.date)}</td>
@@ -121,6 +122,8 @@ export default function Registro() {
                   {e.notes && <div className="truncate text-[11px] text-slate-500" title={e.notes}>{e.notes}</div>}
                 </td>
                 <td className="td text-xs text-slate-300">{e.project || "—"}</td>
+                <td className="td font-mono text-[11px] text-slate-400" title={e.user}>{(e.user || "—").split("@")[0]}</td>
+                <td className="td font-mono text-[11px] text-slate-300">{e.model || "—"}</td>
                 <td className="td font-mono text-xs">{e.type}</td>
                 <td className="td font-mono text-xs">{e.phase}</td>
                 <td className="td text-right font-mono text-xs">{e.minutes}</td>
@@ -131,26 +134,26 @@ export default function Registro() {
                 </td>
                 <td className="td text-right font-mono text-xs text-slate-300">{fmtEur(e.credits * price)}</td>
                 <td className="td"><SourceBadge source={e.source} testId={`record-source-${e.id}`} /></td>
-                {isAdmin && (
-                  <td className="td">
+                <td className="td">
+                  {canEdit(e) && (
                     <div className="flex justify-end gap-1 opacity-60 transition-opacity group-hover:opacity-100">
                       <button data-testid={`edit-entry-${e.id}`} className="btn-ghost" onClick={() => setDialog({ open: true, initial: e })} title="Editar"><Pencil size={14} /></button>
                       <button data-testid={`delete-entry-${e.id}`} className="btn-ghost hover:text-red-400" onClick={() => setToDelete(e)} title="Borrar"><Trash2 size={14} /></button>
                     </div>
-                  </td>
-                )}
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
           {entries.length > 0 && (
             <tfoot>
               <tr className="bg-[#0A1019]" data-testid="records-totals">
-                <td className="td font-mono text-xs text-slate-400" colSpan={5}>{entries.length} entradas</td>
+                <td className="td font-mono text-xs text-slate-400" colSpan={7}>{entries.length} entradas</td>
                 <td className="td text-right font-mono text-xs">{totals.minutes}</td>
                 <td className="td text-right font-mono text-xs">{totals.messages}</td>
                 <td className="td text-right font-mono text-sm font-bold text-mint">{fmtCredits(totals.credits)}</td>
                 <td className="td text-right font-mono text-xs">{fmtEur(totals.credits * price)}</td>
-                <td className="td" colSpan={isAdmin ? 2 : 1} />
+                <td className="td" colSpan={2} />
               </tr>
             </tfoot>
           )}

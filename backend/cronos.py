@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from db import db
-from auth import get_current_user, require_admin, audit, admin_emails
+from auth import get_current_user, require_admin, audit, admin_emails, role_for
 from emailer import send_email, EMAIL_FROM_NAME
 
 logger = logging.getLogger(__name__)
@@ -23,9 +23,10 @@ TYPES = ["desarrollo", "corrección", "consulta", "pruebas"]
 PHASES = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "otra"]
 SOURCES = ["estimado", "confirmado", "importado"]
 LINE_FORMAT = "#cronos | título | tipo | fase | minutos | mensajes | créditos [| proyecto]"
-DEFAULT_SETTINGS = {"price_per_credit_eur": 0.01, "monthly_budget_credits": 5000, "alerts_sent": {}, "phase_goals": {}}
+DEFAULT_MODELS = ["Claude Fable 5.1", "Claude Sonnet 4.5", "Claude Opus 4.1", "GPT-5", "GPT-4.1", "Gemini 2.5 Pro", "Gemini 2.5 Flash"]
+DEFAULT_SETTINGS = {"price_per_credit_eur": 0.01, "monthly_budget_credits": 5000, "alerts_sent": {}, "phase_goals": {}, "models": DEFAULT_MODELS}
 ENTRY_FIELDS = ["title", "project", "type", "phase", "date", "minutes", "messages", "credits",
-                "source", "notes", "estimated_credits"]
+                "source", "notes", "estimated_credits", "user", "model"]
 NO_ID = {"_id": 0}
 
 router = APIRouter(prefix="/api/cronos")
@@ -78,6 +79,9 @@ async def ensure_defaults():
     for k, v in DEFAULT_SETTINGS.items():
         if not await db.cronos_settings.find_one({"key": k}):
             await set_setting(k, v)
+    seed_user = (os.environ.get("ADMIN_EMAILS", "").split(",")[0] or "").strip().lower()
+    await db.cronos_entries.update_many({"user": {"$in": [None, ""]}}, {"$set": {"user": seed_user}})
+    await db.cronos_entries.update_many({"model": None}, {"$set": {"model": ""}})
 
 
 async def ensure_project(name: str):
@@ -89,7 +93,8 @@ async def ensure_project(name: str):
 # ---------- filters ----------
 class Filters:
     def __init__(self, project: Optional[str] = None, type: Optional[str] = None, phase: Optional[str] = None,
-                 source: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None):
+                 source: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None,
+                 user: Optional[str] = None, model: Optional[str] = None):
         q: dict = {}
         if project:
             q["project"] = project
@@ -99,6 +104,10 @@ class Filters:
             q["phase"] = phase
         if source:
             q["source"] = source
+        if user:
+            q["user"] = user
+        if model:
+            q["model"] = model
         if date_from or date_to:
             q["date"] = {}
             if date_from:
@@ -167,6 +176,7 @@ def compute_stats(entries: list, price: float) -> dict:
                        "correccion_pct": round(corr["credits"] / tot * 100, 1) if tot else 0},
         "by_type": agg(entries, "type", price), "by_phase": agg(entries, "phase", price),
         "by_source": agg(entries, "source", price), "daily": daily, "top": top, "monthly": monthly,
+        "by_model": agg(entries, "model", price), "by_user": agg(entries, "user", price),
         "price_per_credit_eur": price,
     }
 
@@ -218,6 +228,7 @@ def parse_cronos_line(line: str) -> dict:
     warnings: list = []
     title, type_raw, phase_raw, min_raw, msg_raw, cr_raw = parts[:6]
     project = parts[6] if len(parts) > 6 else ""
+    model = parts[7] if len(parts) > 7 else ""
     typ = normalize_type(type_raw)
     if not typ:
         typ = "desarrollo"
@@ -234,7 +245,7 @@ def parse_cronos_line(line: str) -> dict:
         "draft": {"title": title, "project": project, "type": typ, "phase": phase,
                   "date": today_local().isoformat(), "minutes": int(round(minutes or 0)),
                   "messages": int(round(messages or 0)), "credits": round(credits or 0, 2),
-                  "source": "estimado", "notes": ""},
+                  "source": "estimado", "notes": "", "model": model},
         "warnings": warnings,
     }
 
@@ -514,6 +525,8 @@ async def import_payload(payload: dict, who: str) -> dict:
         e["minutes"] = int(e.get("minutes") or 0)
         e["messages"] = int(e.get("messages") or 0)
         e["credits"] = float(e.get("credits") or 0)
+        e["user"] = (e.get("user") or who or "").lower()
+        e["model"] = e.get("model") or ""
         if not e.get("title") or not e.get("type") or not e.get("phase") or not e.get("date"):
             raise HTTPException(422, f"Entrada #{i + 1}: faltan campos obligatorios (title, type, phase, date)")
         validate_enums(e)
@@ -545,6 +558,8 @@ class EntryIn(BaseModel):
     source: str = "estimado"
     notes: str = ""
     estimated_credits: Optional[float] = None
+    user: Optional[str] = None
+    model: str = ""
 
 
 class EntryPatch(BaseModel):
@@ -559,6 +574,8 @@ class EntryPatch(BaseModel):
     source: Optional[str] = None
     notes: Optional[str] = None
     estimated_credits: Optional[float] = None
+    user: Optional[str] = None
+    model: Optional[str] = None
 
 
 class LineIn(BaseModel):
@@ -587,6 +604,7 @@ class SettingsIn(BaseModel):
     price_per_credit_eur: Optional[float] = Field(ge=0, default=None)
     monthly_budget_credits: Optional[float] = Field(ge=0, default=None)
     phase_goals: Optional[dict] = None
+    models: Optional[List[str]] = None
 
 
 class ProjectIn(BaseModel):
@@ -605,12 +623,68 @@ class ProjectPatch(BaseModel):
     archived: Optional[bool] = None
 
 
+def can_edit(user: dict, doc: dict) -> bool:
+    return user["role"] == "admin" or doc.get("user") == user["email"] or doc.get("created_by") == user["email"]
+
+
+async def workspace_users() -> list:
+    emails = {u["email"] for u in await db.users.find({}, {"_id": 0, "email": 1}).to_list(1000)}
+    emails |= {u for u in await db.cronos_entries.distinct("user") if u}
+    return sorted(emails)
+
+
 # ---------- routes ----------
 @router.get("/meta")
 async def meta(user=Depends(get_current_user)):
     names = {p["name"] for p in await db.cronos_projects.find({"archived": {"$ne": True}}, NO_ID).to_list(500)}
     names |= {p for p in await db.cronos_entries.distinct("project") if p}
-    return {"types": TYPES, "phases": PHASES, "sources": SOURCES, "projects": sorted(names), "line_format": LINE_FORMAT}
+    settings = await get_settings()
+    models = list(settings.get("models") or [])
+    models += [m for m in await db.cronos_entries.distinct("model") if m and m not in models]
+    return {"types": TYPES, "phases": PHASES, "sources": SOURCES, "projects": sorted(names), "users": await workspace_users(),
+            "models": models, "line_format": LINE_FORMAT + " [| modelo]"}
+
+
+@router.get("/users")
+async def users_overview(user=Depends(get_current_user)):
+    settings = await get_settings()
+    price = float(settings.get("price_per_credit_eur") or 0)
+    ym = today_local().strftime("%Y-%m")
+    users = {u["email"]: u for u in await db.users.find({}, NO_ID).to_list(1000)}
+    entries = await db.cronos_entries.find({}, NO_ID).to_list(20000)
+    out: dict = {}
+    for email in set(users) | {e.get("user") for e in entries if e.get("user")}:
+        u = users.get(email, {})
+        out[email] = {"email": email, "name": u.get("name"), "picture": u.get("picture"), "role": role_for(email),
+                      "last_login": u.get("last_login"), "count": 0, "credits": 0.0, "minutes": 0, "messages": 0,
+                      "credits_month": 0.0, "minutes_month": 0, "last_activity": None, "models": {}}
+    for e in entries:
+        email = e.get("user")
+        if not email or email not in out:
+            continue
+        o = out[email]
+        c = float(e.get("credits") or 0)
+        o["count"] += 1
+        o["credits"] += c
+        o["minutes"] += int(e.get("minutes") or 0)
+        o["messages"] += int(e.get("messages") or 0)
+        if str(e.get("date", "")).startswith(ym):
+            o["credits_month"] += c
+            o["minutes_month"] += int(e.get("minutes") or 0)
+        if not o["last_activity"] or e["date"] > o["last_activity"]:
+            o["last_activity"] = e["date"]
+        if e.get("model"):
+            o["models"][e["model"]] = o["models"].get(e["model"], 0) + c
+    result = []
+    for o in out.values():
+        o["credits"] = round(o["credits"], 2)
+        o["credits_month"] = round(o["credits_month"], 2)
+        o["cost_eur"] = round(o["credits"] * price, 2)
+        o["hours"] = round(o["minutes"] / 60, 2)
+        o["top_model"] = max(o["models"], key=o["models"].get) if o["models"] else None
+        o["models"] = [{"model": k, "credits": round(v, 2)} for k, v in sorted(o["models"].items(), key=lambda x: -x[1])]
+        result.append(o)
+    return sorted(result, key=lambda x: -x["credits"])
 
 
 @router.get("/entries")
@@ -619,9 +693,10 @@ async def list_entries(f: Filters = Depends(), user=Depends(get_current_user)):
 
 
 @router.post("/entries", status_code=201)
-async def create_entry(body: EntryIn, request: Request, background: BackgroundTasks, user=Depends(require_admin)):
+async def create_entry(body: EntryIn, request: Request, background: BackgroundTasks, user=Depends(get_current_user)):
     d = body.model_dump()
     validate_enums(d)
+    d["user"] = (d.get("user") or user["email"]).lower() if user["role"] == "admin" else user["email"]
     d.update({"id": str(uuid.uuid4()), "created_by": user["email"], "created_at": now_iso(), "updated_at": now_iso()})
     await db.cronos_entries.insert_one(dict(d))
     await ensure_project(d["project"])
@@ -631,17 +706,22 @@ async def create_entry(body: EntryIn, request: Request, background: BackgroundTa
 
 
 @router.patch("/entries/{entry_id}")
-async def patch_entry(entry_id: str, body: EntryPatch, request: Request, user=Depends(require_admin)):
+async def patch_entry(entry_id: str, body: EntryPatch, request: Request, user=Depends(get_current_user)):
     changes = {k: v for k, v in body.model_dump().items() if v is not None}
     if not changes:
         raise HTTPException(400, "No hay cambios")
+    doc = await db.cronos_entries.find_one({"id": entry_id}, NO_ID)
+    if not doc:
+        raise HTTPException(404, "Entrada no encontrada")
+    if not can_edit(user, doc):
+        raise HTTPException(403, "Solo puedes editar tus propias entradas")
+    if "user" in changes and user["role"] != "admin":
+        changes.pop("user")
     validate_enums(changes)
     if "title" in changes and not changes["title"].strip():
         raise HTTPException(422, "El título no puede estar vacío")
     changes["updated_at"] = now_iso()
-    res = await db.cronos_entries.update_one({"id": entry_id}, {"$set": changes})
-    if res.matched_count == 0:
-        raise HTTPException(404, "Entrada no encontrada")
+    await db.cronos_entries.update_one({"id": entry_id}, {"$set": changes})
     if changes.get("project"):
         await ensure_project(changes["project"])
     await audit(user["email"], "entry_update", entry_id, ", ".join(k for k in changes if k != "updated_at"), request)
@@ -649,10 +729,12 @@ async def patch_entry(entry_id: str, body: EntryPatch, request: Request, user=De
 
 
 @router.delete("/entries/{entry_id}")
-async def delete_entry(entry_id: str, request: Request, user=Depends(require_admin)):
+async def delete_entry(entry_id: str, request: Request, user=Depends(get_current_user)):
     doc = await db.cronos_entries.find_one({"id": entry_id}, NO_ID)
     if not doc:
         raise HTTPException(404, "Entrada no encontrada")
+    if not can_edit(user, doc):
+        raise HTTPException(403, "Solo puedes borrar tus propias entradas")
     await db.cronos_entries.delete_one({"id": entry_id})
     await audit(user["email"], "entry_delete", entry_id, doc.get("title", ""), request)
     return {"ok": True}
@@ -738,10 +820,10 @@ async def export_csv(f: Filters = Depends(), user=Depends(get_current_user)):
     buf = io.StringIO()
     buf.write("\ufeff")
     w = csv.writer(buf)
-    w.writerow(["fecha", "titulo", "proyecto", "tipo", "fase", "minutos", "mensajes", "creditos", "coste_eur", "origen", "notas"])
+    w.writerow(["fecha", "titulo", "proyecto", "usuario", "modelo", "tipo", "fase", "minutos", "mensajes", "creditos", "coste_eur", "origen", "notas"])
     for e in entries:
         c = float(e.get("credits") or 0)
-        w.writerow([e.get("date"), e.get("title"), e.get("project"), e.get("type"), e.get("phase"), e.get("minutes"),
+        w.writerow([e.get("date"), e.get("title"), e.get("project"), e.get("user") or "", e.get("model") or "", e.get("type"), e.get("phase"), e.get("minutes"),
                     e.get("messages"), f"{c:.2f}", f"{c * price:.2f}", e.get("source"), e.get("notes") or ""])
     return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="cronos_{today_local().isoformat()}.csv"'})
@@ -758,7 +840,7 @@ async def import_data(body: ImportIn, request: Request, user=Depends(require_adm
 async def read_settings(user=Depends(get_current_user)):
     s = await get_settings()
     return {"price_per_credit_eur": s["price_per_credit_eur"], "monthly_budget_credits": s["monthly_budget_credits"],
-            "phase_goals": s.get("phase_goals") or {},
+            "phase_goals": s.get("phase_goals") or {}, "models": s.get("models") or [],
             "alerts_sent": s.get("alerts_sent") or {}, "digest_recipients": digest_recipients(), "admin_emails": sorted(admin_emails())}
 
 
@@ -775,6 +857,8 @@ async def update_settings(body: SettingsIn, request: Request, user=Depends(requi
                     raise HTTPException(422, "El objetivo por fase no puede ser negativo")
                 goals[k] = float(v)
         changes["phase_goals"] = goals
+    if "models" in changes:
+        changes["models"] = [m.strip() for m in dict.fromkeys(changes["models"]) if m and m.strip()]
     for k, v in changes.items():
         await set_setting(k, v)
     await audit(user["email"], "settings_update", "settings", ", ".join(f"{k}={v}" for k, v in changes.items()), request)

@@ -79,6 +79,29 @@ function PhaseGoals({ settings, onSaved }) {
   );
 }
 
+function Models({ settings, onSaved }) {
+  const [text, setText] = useState("");
+  useEffect(() => { if (settings) setText((settings.models || []).join("\n")); }, [settings]);
+  const save = async (e) => {
+    e.preventDefault();
+    try {
+      await api.put("/cronos/settings", { models: text.split("\n").map((m) => m.trim()).filter(Boolean) });
+      toast.success("Modelos guardados");
+      onSaved();
+    } catch (err) {
+      toast.error(errMsg(err));
+    }
+  };
+  return (
+    <form onSubmit={save} className="panel p-4" data-testid="models-form">
+      <div className="mono-label mb-1">Modelos de IA</div>
+      <p className="mb-2 text-xs text-slate-500">Uno por línea. Aparecen en el formulario de tarea y en la línea <span className="font-mono">#cronos | … | proyecto | modelo</span>.</p>
+      <textarea data-testid="models-textarea" className="field h-40 resize-y py-2 font-mono text-xs" value={text} onChange={(e) => setText(e.target.value)} />
+      <button className="btn-primary mt-3" data-testid="save-models-button"><Save size={14} /> Guardar modelos</button>
+    </form>
+  );
+}
+
 function Projects({ projects, onChange }) {
   const [draft, setDraft] = useState({ name: "", monthly_goal_credits: "", goal_credits: "", color: "#00FFBF" });
   const [edits, setEdits] = useState({});
@@ -220,7 +243,10 @@ export default function Ajustes() {
         <SettingsForm settings={settings} onSaved={refresh} />
         <Digest settings={settings} />
       </div>
-      <PhaseGoals settings={settings} onSaved={refresh} />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <PhaseGoals settings={settings} onSaved={refresh} />
+        <Models settings={settings} onSaved={refresh} />
+      </div>
       <Projects projects={projects} onChange={refresh} />
       <AuditLog />
     </div>

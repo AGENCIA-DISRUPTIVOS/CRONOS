@@ -2,16 +2,18 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { api, errMsg } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { todayIso } from "@/lib/format";
 
-const BLANK = { title: "", project: "", type: "desarrollo", phase: "otra", date: todayIso(), minutes: 0, messages: 0, credits: 0, source: "estimado", notes: "" };
+const BLANK = { title: "", project: "", type: "desarrollo", phase: "otra", date: todayIso(), minutes: 0, messages: 0, credits: 0, source: "estimado", notes: "", user: "", model: "" };
 
 export function EntryDialog({ open, onOpenChange, initial, meta, onSaved }) {
+  const { user: me, isAdmin } = useAuth();
   const [form, setForm] = useState(BLANK);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
-    if (open) setForm({ ...BLANK, ...(initial || {}) });
-  }, [open, initial]);
+    if (open) setForm({ ...BLANK, user: me?.email || "", ...(initial || {}) });
+  }, [open, initial, me]);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const isEdit = Boolean(initial?.id);
 
@@ -20,6 +22,7 @@ export function EntryDialog({ open, onOpenChange, initial, meta, onSaved }) {
     setSaving(true);
     const body = { ...form, minutes: Number(form.minutes), messages: Number(form.messages), credits: Number(form.credits) };
     delete body.id; delete body.created_at; delete body.updated_at; delete body.created_by;
+    if (!body.user) delete body.user;
     try {
       if (isEdit) await api.patch(`/cronos/entries/${initial.id}`, body);
       else await api.post("/cronos/entries", body);
@@ -59,6 +62,17 @@ export function EntryDialog({ open, onOpenChange, initial, meta, onSaved }) {
               <datalist id="projects-list">{(meta?.projects || []).map((p) => <option key={p} value={p} />)}</datalist>
             </Field>
           </div>
+          <Field label="Usuario">
+            <select data-testid="entry-user-select" className="field font-mono text-xs" value={form.user || ""} disabled={!isAdmin} onChange={(e) => set("user", e.target.value)}>
+              {[...new Set([me?.email, form.user, ...(meta?.users || [])].filter(Boolean))].map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </Field>
+          <Field label="Modelo IA">
+            <select data-testid="entry-model-select" className="field font-mono text-xs" value={form.model || ""} onChange={(e) => set("model", e.target.value)}>
+              <option value="">— sin indicar —</option>
+              {[...new Set([form.model, ...(meta?.models || [])].filter(Boolean))].map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </Field>
           <Field label="Tipo">
             <select data-testid="entry-type-select" className="field font-mono" value={form.type} onChange={(e) => set("type", e.target.value)}>
               {(meta?.types || []).map((t) => <option key={t}>{t}</option>)}

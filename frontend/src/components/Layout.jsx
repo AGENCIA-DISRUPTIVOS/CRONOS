@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LogOut, AlertTriangle, LayoutDashboard, ListTodo, Scale, Settings } from "lucide-react";
+import { LogOut, AlertTriangle, LayoutDashboard, ListTodo, Scale, Settings, Users, BookOpen, CircleHelp } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { fmtCredits } from "@/lib/format";
@@ -9,6 +9,9 @@ const NAV = [
   { to: "/", label: "Panel", icon: LayoutDashboard, id: "nav-panel" },
   { to: "/registro", label: "Registro", icon: ListTodo, id: "nav-registro" },
   { to: "/cuadrar", label: "Cuadrar", icon: Scale, id: "nav-cuadrar" },
+  { to: "/equipo", label: "Equipo", icon: Users, id: "nav-equipo" },
+  { to: "/wiki", label: "Wiki", icon: BookOpen, id: "nav-wiki" },
+  { to: "/instrucciones", label: "Guía", icon: CircleHelp, id: "nav-instrucciones" },
   { to: "/ajustes", label: "Ajustes", icon: Settings, id: "nav-ajustes", admin: true },
 ];
 
@@ -40,7 +43,7 @@ export function Layout({ children }) {
                 }
               >
                 <Icon size={15} />
-                <span className="hidden sm:inline">{label}</span>
+                <span className="hidden lg:inline">{label}</span>
               </NavLink>
             ))}
           </nav>
@@ -53,7 +56,7 @@ export function Layout({ children }) {
             >
               {user.role}
             </span>
-            <span className="hidden font-mono text-xs text-slate-400 md:inline" data-testid="user-email">
+            <span className="hidden font-mono text-xs text-slate-400 xl:inline" data-testid="user-email">
               {user.email}
             </span>
             {user.picture && <img src={user.picture} alt="" className="h-7 w-7 rounded-full border border-border" />}

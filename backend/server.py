@@ -9,6 +9,7 @@ from starlette.middleware.cors import CORSMiddleware
 from db import db, client, ROOT_DIR
 from auth import router as auth_router
 from cronos import router as cronos_router, import_payload, ensure_defaults, send_weekly_digest, run_budget_check
+from wiki import router as wiki_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Cronos Disruptivos", lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(cronos_router)
+app.include_router(wiki_router)
 
 
 @app.get("/api/health")

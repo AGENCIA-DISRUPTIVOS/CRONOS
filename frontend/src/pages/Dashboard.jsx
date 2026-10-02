@@ -5,7 +5,7 @@ import { EMPTY_FILTERS, FiltersBar } from "@/components/FiltersBar";
 import { KpiCards } from "@/components/dashboard/KpiCards";
 import { BudgetBar } from "@/components/dashboard/BudgetBar";
 import { DailyChart } from "@/components/dashboard/DailyChart";
-import { Breakdowns, Comparison } from "@/components/dashboard/Breakdowns";
+import { Breakdowns, Comparison, ModelUserBreakdowns } from "@/components/dashboard/Breakdowns";
 import { TopTasks } from "@/components/dashboard/TopTasks";
 import { ProjectCards } from "@/components/dashboard/ProjectCards";
 import { MonthlyTrend } from "@/components/dashboard/MonthlyTrend";
@@ -42,6 +42,9 @@ export default function Dashboard() {
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <Breakdowns stats={stats} phaseGoals={settings?.phase_goals} />
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <ModelUserBreakdowns stats={stats} />
           </div>
           <MonthlyTrend monthly={stats.monthly || []} />
           <TopTasks top={stats.top} price={stats.price_per_credit_eur} />

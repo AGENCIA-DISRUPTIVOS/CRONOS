@@ -9,6 +9,9 @@ import Dashboard from "@/pages/Dashboard";
 import Registro from "@/pages/Registro";
 import Cuadrar from "@/pages/Cuadrar";
 import Ajustes from "@/pages/Ajustes";
+import Equipo from "@/pages/Equipo";
+import Wiki from "@/pages/Wiki";
+import Instrucciones from "@/pages/Instrucciones";
 
 function ProtectedRoute() {
   const { user, loading } = useAuth();
@@ -37,6 +40,9 @@ function AppRouter() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/registro" element={<Registro />} />
         <Route path="/cuadrar" element={<Cuadrar />} />
+        <Route path="/equipo" element={<Equipo />} />
+        <Route path="/wiki" element={<Wiki />} />
+        <Route path="/instrucciones" element={<Instrucciones />} />
         <Route path="/ajustes" element={<Ajustes />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
