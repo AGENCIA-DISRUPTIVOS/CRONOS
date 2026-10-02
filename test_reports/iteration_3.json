@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 3 testing of the wiki auto-generation on cronos import + backfill bug fix. 9/9 backend tests pass (filters by project/entry_id, auto-wiki on import, idempotency, create_wiki=false opt-out, backfill admin=0 created, viewer forbidden). All 3 frontend flows pass with admin cookie: /wiki project filter shows the 11 'importado' Central Disruptivos cards and renders the task table + 'Qué se ha hecho' heading; /registro book icon navigates to the right doc; /wiki?entry=... deep-link opens the doc directly.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/wiki", "issues": ["Pre-existing hydration warning: '<span> cannot be a child of <option>' from Visual-Edits dev wrapper on wiki-tag-select options. Cosmetic only; already noted in iteration 2."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration3.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "import_payload returns `wiki` as the count of items processed (upserts) rather than newly inserted docs. Not a bug per spec, but the field name is misleading — contrast with `wiki_auto` which correctly counts only new auto-created docs. Consider renaming to `wiki_upserted` for clarity.",
+    "ensure_wiki_for_entry uses source default 'importado' which is good for the import flow. If called from other code paths in the future, remember to pass an explicit source.",
+    "wiki_backfill accepts an optional `project` query param but has no pagination/limit; fine for current data size (~hundreds) but could be slow if dataset grows."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration3.py (new)"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (3/3 flows)"},
+  "test_credentials": "ADMIN session_token=test_session_e1 (fran.gomez@disruptivos.com), VIEWER session_token=test_session_viewer (viewer.test@disruptivos.com). Left in place per instructions.",
+  "seed_data_creation": "No persistent data left. Tests create test-imp-wiki-1, test-imp-doc-1, test-imp-nowiki and delete all three plus the auto-generated wiki doc in test_05_cleanup. Verified via follow-up GET returning [].",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend regression files: /app/backend/tests/backend_test.py (iter1), /app/backend/tests/test_iteration2.py (iter2), /app/backend/tests/test_iteration3.py (iter3, this fix). Export REACT_APP_BACKEND_URL before pytest since pytest.ini forcibly removes env. The wiki `wiki` count returned by import_payload reflects upserts, not inserts — assert idempotency by querying for duplicate docs by id, not by counter==0. The 11 Central Disruptivos docs are now persisted; do not call /api/cronos/wiki/backfill expecting non-zero creates. Avoid /api/cronos/wiki/generate (costs credits).",
+  "rca of the issue": "Fix verified end-to-end. POST /api/cronos/import now calls ensure_wiki_for_entry for each entry (source='importado', entry_id link), gated by `create_wiki` flag (default true). Doc existence is checked by entry_id so re-imports are idempotent on auto-docs. Explicit `wiki:[...]` payload uses upsert by id — doc content is overwritten on re-import but no duplicate row is created. /api/cronos/wiki supports entry_id and project filters, enabling the UI’s project selector and the Registro row-level book icon to navigate deterministically to the correct doc."
+}
