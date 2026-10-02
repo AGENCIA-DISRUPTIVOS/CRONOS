@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Download, Pencil, Plus, Trash2, Wand2 } from "lucide-react";
+import { BookOpen, Download, Pencil, Plus, Trash2, Wand2 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { api, cleanParams, errMsg } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -51,6 +51,7 @@ function QuickAdd({ meta, onDraft }) {
 export default function Registro() {
   const { isAdmin, user: me } = useAuth();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const [filters, setFilters] = useState({ ...EMPTY_FILTERS, user: searchParams.get("user") || "" });
   const canEdit = (e) => isAdmin || e.user === me?.email || e.created_by === me?.email;
@@ -135,12 +136,15 @@ export default function Registro() {
                 <td className="td text-right font-mono text-xs text-slate-300">{fmtEur(e.credits * price)}</td>
                 <td className="td"><SourceBadge source={e.source} testId={`record-source-${e.id}`} /></td>
                 <td className="td">
-                  {canEdit(e) && (
-                    <div className="flex justify-end gap-1 opacity-60 transition-opacity group-hover:opacity-100">
-                      <button data-testid={`edit-entry-${e.id}`} className="btn-ghost" onClick={() => setDialog({ open: true, initial: e })} title="Editar"><Pencil size={14} /></button>
-                      <button data-testid={`delete-entry-${e.id}`} className="btn-ghost hover:text-red-400" onClick={() => setToDelete(e)} title="Borrar"><Trash2 size={14} /></button>
-                    </div>
-                  )}
+                  <div className="flex justify-end gap-1 opacity-60 transition-opacity group-hover:opacity-100">
+                    <button data-testid={`wiki-entry-${e.id}`} className="btn-ghost" onClick={() => navigate(`/wiki?entry=${e.id}`)} title="Ver en la wiki"><BookOpen size={14} /></button>
+                    {canEdit(e) && (
+                      <>
+                        <button data-testid={`edit-entry-${e.id}`} className="btn-ghost" onClick={() => setDialog({ open: true, initial: e })} title="Editar"><Pencil size={14} /></button>
+                        <button data-testid={`delete-entry-${e.id}`} className="btn-ghost hover:text-red-400" onClick={() => setToDelete(e)} title="Borrar"><Trash2 size={14} /></button>
+                      </>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}

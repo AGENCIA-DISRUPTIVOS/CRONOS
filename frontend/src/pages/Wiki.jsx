@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowLeft, Bot, Eye, Pencil, Plus, Search, Sparkles, Trash2 } from "lucide-react";
@@ -6,7 +7,7 @@ import { api, errMsg } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Markdown } from "@/components/Markdown";
 
-const SOURCE_STYLE = { manual: "border-border text-slate-400", agente: "border-mint/40 text-mint", ia: "border-purple-500/50 text-purple-300" };
+const SOURCE_STYLE = { manual: "border-border text-slate-400", agente: "border-mint/40 text-mint", ia: "border-purple-500/50 text-purple-300", importado: "border-cyan-700/50 text-cyan-300" };
 const EMPTY = { title: "", content: "", tags: "", project: "", entry_id: null, source: "manual" };
 
 function WikiEditor({ initial, meta, onCancel, onSaved }) {
@@ -122,12 +123,23 @@ function WikiDoc({ id, onBack, onEdit, onDeleted }) {
 
 export default function Wiki() {
   const qc = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [mode, setMode] = useState({ view: "list", id: null, initial: null });
   const [q, setQ] = useState("");
   const [tag, setTag] = useState("");
+  const [project, setProject] = useState(searchParams.get("project") || "");
+  const entryParam = searchParams.get("entry");
   const { data: meta } = useQuery({ queryKey: ["meta"], queryFn: () => api.get("/cronos/meta").then((r) => r.data) });
-  const { data: docs = [], isLoading } = useQuery({ queryKey: ["wiki-list", q, tag], queryFn: () => api.get("/cronos/wiki", { params: { q: q || undefined, tag: tag || undefined } }).then((r) => r.data) });
+  const { data: docs = [], isLoading } = useQuery({ queryKey: ["wiki-list", q, tag, project], queryFn: () => api.get("/cronos/wiki", { params: { q: q || undefined, tag: tag || undefined, project: project || undefined } }).then((r) => r.data) });
   const { data: tags = [] } = useQuery({ queryKey: ["wiki-tags"], queryFn: () => api.get("/cronos/wiki/tags").then((r) => r.data) });
+  useEffect(() => {
+    if (!entryParam) return;
+    api.get("/cronos/wiki", { params: { entry_id: entryParam } }).then(({ data }) => {
+      if (data[0]) setMode({ view: "doc", id: data[0].id, initial: null });
+      else toast.warning("Esta tarea todavía no tiene documento en la wiki");
+      setSearchParams({}, { replace: true });
+    });
+  }, [entryParam, setSearchParams]);
   const back = () => { qc.invalidateQueries({ queryKey: ["wiki-list"] }); qc.invalidateQueries({ queryKey: ["wiki-tags"] }); qc.invalidateQueries({ queryKey: ["wiki"] }); setMode({ view: "list", id: null, initial: null }); };
 
   return (
@@ -145,6 +157,10 @@ export default function Wiki() {
         <>
           <div className="panel flex flex-wrap items-center gap-2 p-3">
             <div className="relative flex-1"><Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" /><input data-testid="wiki-search-input" className="field pl-9" placeholder="Buscar en títulos, contenido y etiquetas…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+            <select data-testid="wiki-project-select" className="field w-auto font-mono text-xs" value={project} onChange={(e) => setProject(e.target.value)}>
+              <option value="">todos los proyectos</option>
+              {(meta?.projects || []).map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
             <select data-testid="wiki-tag-select" className="field w-auto font-mono text-xs" value={tag} onChange={(e) => setTag(e.target.value)}>
               <option value="">todas las etiquetas</option>
               {tags.map((t) => <option key={t} value={t}>#{t}</option>)}

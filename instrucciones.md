@@ -44,6 +44,8 @@ Tabla con cada persona del workspace: tareas, créditos, €, horas, mensajes, c
 
 ## 6. Wiki de iteraciones
 - Cada mejora de la app queda documentada en la **Wiki** (el agente crea la entrada al cerrar la tarea, origen «agente»).
+- Las tareas **importadas** de otras apps (p. ej. el histórico de Central Disruptivos) generan automáticamente su documento (origen «importado») con la ficha de la tarea y una sección «Qué se ha hecho» pendiente de completar. `POST /api/cronos/import` admite además una lista `wiki: [...]` para traer la documentación ya escrita; y `POST /api/cronos/wiki/backfill` (admin) crea los documentos que falten.
+- Desde el Registro, el icono de libro de cada fila abre su documento en la wiki.
 - Cualquier usuario puede **crear** documentos manuales, **editar** los suyos (los admins, todos) y etiquetarlos. Se guarda un historial de las últimas 10 versiones.
 - **Documentar con IA**: elige una tarea del registro o describe lo que has hecho y se genera un borrador en Markdown (consume créditos de la clave universal de Emergent) que puedes revisar antes de guardar.
 - Búsqueda por texto, filtro por proyecto y por etiqueta.

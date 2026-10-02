@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/cronos")
 NO_ID = {"_id": 0}
 LLM_KEY = os.environ["EMERGENT_LLM_KEY"]
 INSTRUCTIONS_PATH = Path(__file__).parent.parent / "instrucciones.md"
-SOURCES = ["manual", "agente", "ia"]
+SOURCES = ["manual", "agente", "ia", "importado"]
 
 
 def now_iso() -> str:
@@ -50,12 +50,14 @@ class GenerateIn(BaseModel):
 
 
 @router.get("/wiki")
-async def list_wiki(q: Optional[str] = None, project: Optional[str] = None, tag: Optional[str] = None, user=Depends(get_current_user)):
+async def list_wiki(q: Optional[str] = None, project: Optional[str] = None, tag: Optional[str] = None, entry_id: Optional[str] = None, user=Depends(get_current_user)):
     query: dict = {}
     if project:
         query["project"] = project
     if tag:
         query["tags"] = tag
+    if entry_id:
+        query["entry_id"] = entry_id
     if q:
         query["$or"] = [{"title": {"$regex": q, "$options": "i"}}, {"content": {"$regex": q, "$options": "i"}}, {"tags": {"$regex": q, "$options": "i"}}]
     docs = await db.cronos_wiki.find(query, NO_ID).sort("updated_at", -1).to_list(500)

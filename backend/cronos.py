@@ -514,9 +514,30 @@ async def run_budget_check():
     await check_budget_alerts(None)
 
 
+def entry_wiki_markdown(e: dict) -> str:
+    rows = [("Proyecto", e.get("project") or "—"), ("Fecha", e.get("date")), ("Tipo", e.get("type")), ("Fase", e.get("phase")),
+            ("Usuario", e.get("user") or "—"), ("Modelo IA", e.get("model") or "—"), ("Minutos", e.get("minutes", 0)),
+            ("Mensajes", e.get("messages", 0)), ("Créditos", e.get("credits", 0)), ("Origen", e.get("source"))]
+    table = "\n".join(f"| {k} | {v} |" for k, v in rows)
+    return (f"# {e['title']}\n\n## Resumen\nTarea importada del histórico del proyecto **{e.get('project') or '—'}**.\n\n"
+            f"| Campo | Valor |\n|---|---|\n{table}\n\n## Notas\n{e.get('notes') or '—'}\n\n"
+            "## Qué se ha hecho\n_Pendiente de completar: edita este documento o usa «Documentar con IA» para describir qué se hizo, cómo usarlo y notas técnicas._\n")
+
+
+async def ensure_wiki_for_entry(e: dict, who: str, source: str = "importado") -> bool:
+    if await db.cronos_wiki.find_one({"entry_id": e["id"]}, {"_id": 1}):
+        return False
+    await db.cronos_wiki.insert_one({
+        "id": str(uuid.uuid4()), "title": e["title"], "content": entry_wiki_markdown(e),
+        "tags": [t for t in [e.get("type"), e.get("phase"), source] if t], "project": e.get("project") or "",
+        "entry_id": e["id"], "source": source, "author": who, "created_at": now_iso(), "updated_at": now_iso(), "history": []})
+    return True
+
+
 # ---------- import ----------
 async def import_payload(payload: dict, who: str) -> dict:
-    n_e = n_s = 0
+    n_e = n_s = n_w = n_auto = 0
+    create_wiki = payload.get("create_wiki", True)
     for i, raw in enumerate(payload.get("entries") or []):
         e = {k: raw.get(k) for k in ENTRY_FIELDS}
         e["project"] = e.get("project") or ""
@@ -535,6 +556,18 @@ async def import_payload(payload: dict, who: str) -> dict:
         await db.cronos_entries.update_one({"id": eid}, {"$set": e, "$setOnInsert": {"id": eid, "created_at": now_iso(), "created_by": who}}, upsert=True)
         await ensure_project(e["project"])
         n_e += 1
+        if create_wiki and await ensure_wiki_for_entry({**e, "id": eid}, who):
+            n_auto += 1
+    for w in payload.get("wiki") or []:
+        if not w.get("title"):
+            continue
+        wid = w.get("id") or str(uuid.uuid4())
+        doc = {"title": w["title"], "content": w.get("content") or "", "tags": [str(t) for t in (w.get("tags") or [])],
+               "project": w.get("project") or "", "entry_id": w.get("entry_id"), "source": w.get("source") or "importado",
+               "updated_at": w.get("updated_at") or now_iso()}
+        await db.cronos_wiki.update_one({"id": wid}, {"$set": doc, "$setOnInsert": {
+            "id": wid, "author": w.get("author") or who, "created_at": w.get("created_at") or now_iso(), "history": []}}, upsert=True)
+        n_w += 1
     for s in payload.get("statements") or []:
         if not valid_date(s.get("date")):
             continue
@@ -542,7 +575,7 @@ async def import_payload(payload: dict, who: str) -> dict:
             "date": s["date"], "credits": float(s.get("credits") or 0),
             "imported_at": s.get("imported_at") or now_iso(), "by": s.get("by") or who}}, upsert=True)
         n_s += 1
-    return {"entries": n_e, "statements": n_s}
+    return {"entries": n_e, "statements": n_s, "wiki": n_w, "wiki_auto": n_auto}
 
 
 # ---------- models ----------
@@ -598,6 +631,8 @@ class ApplyIn(BaseModel):
 class ImportIn(BaseModel):
     entries: List[dict] = []
     statements: List[dict] = []
+    wiki: List[dict] = []
+    create_wiki: bool = True
 
 
 class SettingsIn(BaseModel):
@@ -832,8 +867,19 @@ async def export_csv(f: Filters = Depends(), user=Depends(get_current_user)):
 @router.post("/import")
 async def import_data(body: ImportIn, request: Request, user=Depends(require_admin)):
     res = await import_payload(body.model_dump(), user["email"])
-    await audit(user["email"], "import", "entries", f"{res['entries']} entradas, {res['statements']} extractos", request)
+    await audit(user["email"], "import", "entries", f"{res['entries']} entradas, {res['statements']} extractos, {res['wiki']} wiki, {res['wiki_auto']} wiki auto", request)
     return res
+
+
+@router.post("/wiki/backfill")
+async def wiki_backfill(request: Request, project: Optional[str] = None, user=Depends(require_admin)):
+    q = {"project": project} if project else {}
+    created = 0
+    for e in await db.cronos_entries.find(q, NO_ID).to_list(20000):
+        if await ensure_wiki_for_entry(e, user["email"]):
+            created += 1
+    await audit(user["email"], "wiki_backfill", project or "todos", f"{created} documentos creados", request)
+    return {"created": created}
 
 
 @router.get("/settings")
