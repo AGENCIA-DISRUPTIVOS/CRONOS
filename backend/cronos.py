@@ -3,6 +3,7 @@ import io
 import csv
 import re
 import uuid
+import httpx
 import calendar
 import logging
 import unicodedata
@@ -24,7 +25,8 @@ PHASES = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "otra"]
 SOURCES = ["estimado", "confirmado", "importado"]
 LINE_FORMAT = "#cronos | título | tipo | fase | minutos | mensajes | créditos [| proyecto]"
 DEFAULT_MODELS = ["Claude Fable 5.1", "Claude Sonnet 4.5", "Claude Opus 4.1", "GPT-5", "GPT-4.1", "Gemini 2.5 Pro", "Gemini 2.5 Flash"]
-DEFAULT_SETTINGS = {"price_per_credit_eur": 0.01, "monthly_budget_credits": 5000, "alerts_sent": {}, "phase_goals": {}, "models": DEFAULT_MODELS}
+DEFAULT_SETTINGS = {"price_per_credit_eur": 0.01, "monthly_budget_credits": 5000, "alerts_sent": {}, "phase_goals": {}, "models": DEFAULT_MODELS,
+                    "sync_sources": [], "last_sync": None}
 ENTRY_FIELDS = ["title", "project", "type", "phase", "date", "minutes", "messages", "credits",
                 "source", "notes", "estimated_credits", "user", "model"]
 NO_ID = {"_id": 0}
@@ -954,6 +956,127 @@ async def delete_project(project_id: str, request: Request, user=Depends(require
     await db.cronos_projects.delete_one({"id": project_id})
     await audit(user["email"], "project_delete", project_id, doc["name"], request)
     return {"ok": True}
+
+
+# ---------- sync with other Emergent apps ----------
+def mask_source(s: dict) -> dict:
+    tok = s.get("token") or ""
+    return {**s, "token": (f"…{tok[-4:]}" if tok else ""), "has_token": bool(tok)}
+
+
+async def fetch_source(src: dict) -> dict:
+    base = (src.get("base_url") or "").rstrip("/")
+    if not base.startswith("https://"):
+        raise ValueError("La URL debe empezar por https://")
+    headers = {"Accept": "application/json"}
+    if src.get("token"):
+        headers["Authorization"] = f"Bearer {src['token']}"
+        headers["X-API-Key"] = src["token"]
+    payload: dict = {"entries": [], "statements": [], "wiki": []}
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as c:
+        r = await c.get(f"{base}/api/cronos/export.json", headers=headers)
+        if r.status_code == 200 and isinstance(r.json(), dict):
+            data = r.json()
+            for k in payload:
+                payload[k] = data.get(k) or []
+            return payload
+        r = await c.get(f"{base}/api/cronos/entries", headers=headers)
+        if r.status_code in (401, 403):
+            raise ValueError("La app remota ha rechazado el token (401/403)")
+        r.raise_for_status()
+        payload["entries"] = r.json() if isinstance(r.json(), list) else (r.json().get("items") or [])
+        for k in ("statements", "wiki"):
+            rr = await c.get(f"{base}/api/cronos/{k}", headers=headers)
+            if rr.status_code == 200 and isinstance(rr.json(), list):
+                payload[k] = rr.json()
+    return payload
+
+
+async def run_sync(who: str) -> dict:
+    settings = await get_settings()
+    results = []
+    for src in settings.get("sync_sources") or []:
+        if not src.get("enabled", True):
+            continue
+        item = {"name": src.get("name"), "base_url": src.get("base_url")}
+        try:
+            payload = await fetch_source(src)
+            if src.get("project"):
+                for e in payload["entries"]:
+                    e["project"] = src["project"]
+                for w in payload["wiki"]:
+                    w["project"] = src["project"]
+            for e in payload["entries"]:
+                e.setdefault("source", "estimado")
+                if not e.get("user"):
+                    e["user"] = src.get("default_user") or who
+            res = await import_payload(payload, f"sync:{src.get('name') or src.get('base_url')}")
+            item.update({"ok": True, **res, "fetched": len(payload["entries"])})
+        except Exception as ex:
+            logger.error(f"Sync {src.get('name')}: {ex}")
+            item.update({"ok": False, "error": str(ex)[:300]})
+        results.append(item)
+    last = {"at": now_iso(), "by": who, "results": results}
+    await set_setting("last_sync", last)
+    await db.audit_log.insert_one({"who": who, "action": "sync", "target": "sources", "detail": f"{sum(1 for r in results if r.get('ok'))}/{len(results)} fuentes OK", "ip": "", "at": now_iso()})
+    return last
+
+
+class SyncSourceIn(BaseModel):
+    name: str = Field(min_length=1)
+    base_url: str = Field(min_length=8)
+    token: Optional[str] = None
+    project: str = ""
+    default_user: str = ""
+    enabled: bool = True
+
+
+@router.get("/sync/status")
+async def sync_status(user=Depends(get_current_user)):
+    s = await get_settings()
+    return {"last_sync": s.get("last_sync"), "sources": [mask_source(x) for x in (s.get("sync_sources") or [])]}
+
+
+@router.post("/sync")
+async def sync_now(request: Request, background: BackgroundTasks, user=Depends(require_admin)):
+    s = await get_settings()
+    if not (s.get("sync_sources") or []):
+        raise HTTPException(400, "No hay fuentes de sincronización configuradas. Añádelas en Ajustes → Sincronización")
+    res = await run_sync(user["email"])
+    await check_budget_alerts(background)
+    return res
+
+
+@router.post("/sync/sources", status_code=201)
+async def add_sync_source(body: SyncSourceIn, request: Request, user=Depends(require_admin)):
+    s = await get_settings()
+    sources = list(s.get("sync_sources") or [])
+    d = {"id": str(uuid.uuid4()), **body.model_dump()}
+    d["base_url"] = d["base_url"].rstrip("/")
+    if not d["base_url"].startswith("https://"):
+        raise HTTPException(422, "La URL debe empezar por https://")
+    sources.append(d)
+    await set_setting("sync_sources", sources)
+    await audit(user["email"], "sync_source_add", d["id"], d["name"], request)
+    return mask_source(d)
+
+
+@router.delete("/sync/sources/{source_id}")
+async def delete_sync_source(source_id: str, request: Request, user=Depends(require_admin)):
+    s = await get_settings()
+    sources = [x for x in (s.get("sync_sources") or []) if x.get("id") != source_id]
+    if len(sources) == len(s.get("sync_sources") or []):
+        raise HTTPException(404, "Fuente no encontrada")
+    await set_setting("sync_sources", sources)
+    await audit(user["email"], "sync_source_delete", source_id, "", request)
+    return {"ok": True}
+
+
+@router.get("/export.json")
+async def export_json(user=Depends(get_current_user)):
+    return {"entries": await db.cronos_entries.find({}, NO_ID).to_list(20000),
+            "statements": await db.cronos_statements.find({}, NO_ID).to_list(5000),
+            "wiki": await db.cronos_wiki.find({}, {"_id": 0, "history": 0}).to_list(2000)}
 
 
 @router.get("/digest/preview")

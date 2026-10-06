@@ -67,5 +67,14 @@ Al cerrar cada tarea de este proyecto, el agente:
 2. Crea la entrada correspondiente en la Wiki.
 3. Cierra su respuesta con la línea `#cronos | … | Cronos Disruptivos | <modelo>` por si quieres pegarla a mano.
 
+## 9. Sincronización con otras apps (Central Disruptivos, etc.)
+Cronos **no ve** automáticamente lo que ocurre en otras apps: solo importa lo que esas apps exponen. Para sincronizar:
+1. En la otra app debe existir una API que devuelva sus datos de Cronos: idealmente `GET /api/cronos/export.json` → `{ entries, statements, wiki }`; si no, `GET /api/cronos/entries` (+ `/statements`, `/wiki`). Debe aceptar un token estático (`Authorization: Bearer <token>` o `X-API-Key`).
+2. En **Ajustes → Sincronización** añade la fuente: nombre, URL base (https), token y, opcionalmente, el proyecto a forzar y el usuario por defecto.
+3. Pulsa **Actualizar** en el panel (o espera al cron diario de las 07:30). La importación es idempotente por `id`: lo nuevo se añade, lo existente se actualiza y nada se duplica. El resultado por fuente se ve en Ajustes y al pasar el ratón por «última sync».
+
+Cronos también expone su propio `GET /api/cronos/export.json` para que otras apps puedan leer sus datos.
+
 ## Historial de cambios de este documento
+- 2026-10-06 · v2: sincronización con otras apps (sección 9), documento global por proyecto en la Wiki.
 - 2026-10-01 · v1: primera versión (Fase 1 + Fase 2, gráfica multi-serie, CSV, comparativa mensual, topes por fase, usuarios, modelos, wiki).

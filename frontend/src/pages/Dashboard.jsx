@@ -9,6 +9,7 @@ import { Breakdowns, Comparison, ModelUserBreakdowns } from "@/components/dashbo
 import { TopTasks } from "@/components/dashboard/TopTasks";
 import { ProjectCards } from "@/components/dashboard/ProjectCards";
 import { MonthlyTrend } from "@/components/dashboard/MonthlyTrend";
+import { SyncButton } from "@/components/SyncButton";
 
 export default function Dashboard() {
   const [filters, setFilters] = useState(EMPTY_FILTERS);
@@ -28,6 +29,7 @@ export default function Dashboard() {
           <div className="mono-label">Panel de costes</div>
           <h1 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">Consumo de agentes IA</h1>
         </div>
+        <SyncButton />
       </div>
       <FiltersBar filters={filters} setFilters={setFilters} meta={meta} />
       {isLoading || !stats ? (

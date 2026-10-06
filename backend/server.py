@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from starlette.middleware.cors import CORSMiddleware
 from db import db, client, ROOT_DIR
 from auth import router as auth_router
-from cronos import router as cronos_router, import_payload, ensure_defaults, send_weekly_digest, run_budget_check
+from cronos import router as cronos_router, import_payload, ensure_defaults, send_weekly_digest, run_budget_check, run_sync
 from wiki import router as wiki_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -69,6 +69,14 @@ async def cron_budget_check(request: Request, background: BackgroundTasks):
     # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
     if await cron_guard(request):
         background.add_task(run_budget_check)
+    return {"status": "accepted"}
+
+
+@app.post("/api/cron/sync")
+async def cron_sync(request: Request, background: BackgroundTasks):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    if await cron_guard(request):
+        background.add_task(run_sync, "cron")
     return {"status": "accepted"}
 
 

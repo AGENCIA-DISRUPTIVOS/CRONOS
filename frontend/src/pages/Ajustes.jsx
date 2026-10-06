@@ -102,6 +102,63 @@ function Models({ settings, onSaved }) {
   );
 }
 
+function SyncSources() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ["sync-status"], queryFn: () => api.get("/cronos/sync/status").then((r) => r.data) });
+  const [form, setForm] = useState({ name: "", base_url: "", token: "", project: "", default_user: "" });
+  const add = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post("/cronos/sync/sources", form);
+      toast.success("Fuente añadida");
+      setForm({ name: "", base_url: "", token: "", project: "", default_user: "" });
+      qc.invalidateQueries({ queryKey: ["sync-status"] });
+    } catch (err) { toast.error(errMsg(err)); }
+  };
+  const remove = async (s) => {
+    if (!window.confirm(`¿Eliminar la fuente «${s.name}»?`)) return;
+    await api.delete(`/cronos/sync/sources/${s.id}`);
+    qc.invalidateQueries({ queryKey: ["sync-status"] });
+  };
+  const sources = data?.sources || [];
+  const last = data?.last_sync;
+  return (
+    <div className="panel p-4" data-testid="sync-sources-panel">
+      <div className="mono-label mb-1">Sincronización con otras apps de Emergent</div>
+      <p className="mb-3 text-xs text-slate-500">Cronos descarga de cada app sus tareas (<span className="font-mono">/api/cronos/export.json</span> o <span className="font-mono">/api/cronos/entries</span> + <span className="font-mono">/statements</span> + <span className="font-mono">/wiki</span>) enviando el token como <span className="font-mono">Authorization: Bearer</span> y <span className="font-mono">X-API-Key</span>. Se ejecuta a diario a las 07:30 y con el botón «Actualizar» del panel.</p>
+      <form onSubmit={add} className="mb-3 grid gap-2 md:grid-cols-[1fr_2fr_1.5fr_1fr_1fr_auto]">
+        <input data-testid="sync-name-input" className="field" placeholder="Nombre (Central Disruptivos)" required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+        <input data-testid="sync-url-input" className="field font-mono text-xs" placeholder="https://central-....emergent.host" required value={form.base_url} onChange={(e) => setForm((f) => ({ ...f, base_url: e.target.value }))} />
+        <input data-testid="sync-token-input" className="field font-mono text-xs" placeholder="token / API key" type="password" value={form.token} onChange={(e) => setForm((f) => ({ ...f, token: e.target.value }))} />
+        <input data-testid="sync-project-input" className="field text-xs" placeholder="Proyecto (forzar)" value={form.project} onChange={(e) => setForm((f) => ({ ...f, project: e.target.value }))} />
+        <input data-testid="sync-user-input" className="field font-mono text-xs" placeholder="usuario por defecto" value={form.default_user} onChange={(e) => setForm((f) => ({ ...f, default_user: e.target.value }))} />
+        <button className="btn-primary" data-testid="sync-add-button"><Plus size={14} /> Añadir</button>
+      </form>
+      {sources.length === 0 ? <div className="font-mono text-xs text-slate-600" data-testid="sync-sources-empty">Sin fuentes configuradas</div> : (
+        <table className="w-full">
+          <thead><tr><th className="th">Nombre</th><th className="th">URL</th><th className="th">Token</th><th className="th">Proyecto</th><th className="th">Último resultado</th><th className="th" /></tr></thead>
+          <tbody>
+            {sources.map((s) => {
+              const r = last?.results?.find((x) => x.name === s.name);
+              return (
+                <tr key={s.id} data-testid={`sync-source-row-${s.id}`}>
+                  <td className="td text-sm">{s.name}</td>
+                  <td className="td font-mono text-[11px] text-slate-400">{s.base_url}</td>
+                  <td className="td font-mono text-[11px]">{s.has_token ? s.token : <span className="text-amber-300">sin token</span>}</td>
+                  <td className="td text-xs">{s.project || "—"}</td>
+                  <td className="td font-mono text-[11px]">{r ? (r.ok ? <span className="text-mint">{r.entries} tareas · {r.statements} extractos · {r.wiki + r.wiki_auto} wiki</span> : <span className="text-red-400" title={r.error}>error: {r.error?.slice(0, 60)}</span>) : <span className="text-slate-600">nunca</span>}</td>
+                  <td className="td"><button className="btn-ghost hover:text-red-400" data-testid={`sync-source-delete-${s.id}`} onClick={() => remove(s)}><Trash2 size={14} /></button></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      {last && <div className="mt-2 font-mono text-[11px] text-slate-500" data-testid="sync-last-at">Última sincronización: {last.at?.slice(0, 16).replace("T", " ")} por {last.by}</div>}
+    </div>
+  );
+}
+
 function Projects({ projects, onChange }) {
   const [draft, setDraft] = useState({ name: "", monthly_goal_credits: "", goal_credits: "", color: "#00FFBF" });
   const [edits, setEdits] = useState({});
@@ -247,6 +304,7 @@ export default function Ajustes() {
         <PhaseGoals settings={settings} onSaved={refresh} />
         <Models settings={settings} onSaved={refresh} />
       </div>
+      <SyncSources />
       <Projects projects={projects} onChange={refresh} />
       <AuditLog />
     </div>

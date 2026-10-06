@@ -16,3 +16,11 @@ crons:
     method: POST
     # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
     enabled: true
+  - name: sync-sources
+    description: "Sincroniza cada día las tareas, extractos y wiki de las otras apps de Emergent configuradas en Ajustes"
+    cron: "30 7 * * *"
+    timezone: "Europe/Madrid"
+    endpoint: "{{BASE_URL}}/api/cron/sync"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true
