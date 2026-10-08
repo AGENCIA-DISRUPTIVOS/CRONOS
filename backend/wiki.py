@@ -157,6 +157,7 @@ async def generate_wiki(body: GenerateIn, request: Request, user=Depends(get_cur
     if body.title.strip():
         context.append(f"Título sugerido: {body.title.strip()}")
     chat = LlmChat(api_key=LLM_KEY, session_id=f"wiki-{uuid.uuid4().hex[:8]}", system_message=SYSTEM_PROMPT).with_model("anthropic", "claude-sonnet-5-5")
+    text = ""
     try:
         text = await chat.send_message(UserMessage(text="Documenta esta iteración:\n\n" + "\n\n".join(context)))
     except Exception as e:
@@ -233,6 +234,7 @@ async def generate_overview(body: OverviewGenIn, request: Request, user=Depends(
         raise HTTPException(400, "El proyecto no tiene documentación de la que partir")
     parts = [f"### {d['title']} ({(d.get('created_at') or '')[:10]})\n{(d.get('content') or '')[:2500]}" for d in docs]
     chat = LlmChat(api_key=LLM_KEY, session_id=f"overview-{uuid.uuid4().hex[:8]}", system_message=OVERVIEW_PROMPT).with_model("anthropic", "claude-sonnet-5-5")
+    text = ""
     try:
         text = await chat.send_message(UserMessage(text=f"Proyecto: {body.project}. Redacta el documento global a partir de estas fichas de iteración:\n\n" + "\n\n".join(parts)))
     except Exception as e:

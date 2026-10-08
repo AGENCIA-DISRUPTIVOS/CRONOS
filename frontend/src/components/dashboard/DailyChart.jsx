@@ -8,10 +8,20 @@ const SERIES = [
   { key: "messages", label: "mensajes", color: "#F97316", axis: "right" },
 ];
 
+const TICK = { fill: "#64748B", fontSize: 11, fontFamily: "JetBrains Mono" };
+const TICK_RIGHT = { ...TICK, fill: "#3B82F6" };
+const MARGIN = { top: 4, right: -10, left: -20, bottom: 0 };
+const TOOLTIP_STYLE = { background: "#0D131F", border: "1px solid #1E293B", borderRadius: 6, fontFamily: "JetBrains Mono", fontSize: 12 };
+const DOT = { r: 3 };
+const tooltipFormatter = (v, name) => {
+  const s = SERIES.find((x) => x.key === name);
+  return [name === "credits" ? `${fmtCredits(v)} cr` : fmtNum(v), s?.label || name];
+};
+const tickDate = (d) => fmtDate(d).slice(0, 5);
+
 export function DailyChart({ daily }) {
   const [visible, setVisible] = useState({ credits: true, minutes: true, messages: true });
   const toggle = (k) => setVisible((v) => ({ ...v, [k]: !v[k] }));
-  const tick = { fill: "#64748B", fontSize: 11, fontFamily: "JetBrains Mono" };
   return (
     <div className="panel p-4" data-testid="daily-chart">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -37,7 +47,7 @@ export function DailyChart({ daily }) {
       ) : (
         <div className="h-56 min-h-[224px] min-w-0">
           <ResponsiveContainer width="100%" height={224}>
-            <ComposedChart data={daily} margin={{ top: 4, right: -10, left: -20, bottom: 0 }}>
+            <ComposedChart data={daily} margin={MARGIN}>
               <defs>
                 <linearGradient id="mintFill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#00FFBF" stopOpacity={0.45} />
@@ -45,20 +55,13 @@ export function DailyChart({ daily }) {
                 </linearGradient>
               </defs>
               <CartesianGrid stroke="#1E293B" strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="date" tickFormatter={(d) => fmtDate(d).slice(0, 5)} tick={tick} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="left" tick={tick} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="right" orientation="right" tick={{ ...tick, fill: "#3B82F6" }} axisLine={false} tickLine={false} hide={!visible.minutes && !visible.messages} />
-              <Tooltip
-                contentStyle={{ background: "#0D131F", border: "1px solid #1E293B", borderRadius: 6, fontFamily: "JetBrains Mono", fontSize: 12 }}
-                labelFormatter={fmtDate}
-                formatter={(v, name) => {
-                  const s = SERIES.find((x) => x.key === name);
-                  return [name === "credits" ? `${fmtCredits(v)} cr` : fmtNum(v), s?.label || name];
-                }}
-              />
+              <XAxis dataKey="date" tickFormatter={tickDate} tick={TICK} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="left" tick={TICK} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="right" orientation="right" tick={TICK_RIGHT} axisLine={false} tickLine={false} hide={!visible.minutes && !visible.messages} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} labelFormatter={fmtDate} formatter={tooltipFormatter} />
               {visible.credits && <Area yAxisId="left" type="monotone" dataKey="credits" stroke="#00FFBF" strokeWidth={2} fill="url(#mintFill)" />}
-              {visible.minutes && <Line yAxisId="right" type="monotone" dataKey="minutes" stroke="#3B82F6" strokeWidth={1.5} dot={{ r: 3 }} />}
-              {visible.messages && <Line yAxisId="right" type="monotone" dataKey="messages" stroke="#F97316" strokeWidth={1.5} strokeDasharray="4 3" dot={{ r: 3 }} />}
+              {visible.minutes && <Line yAxisId="right" type="monotone" dataKey="minutes" stroke="#3B82F6" strokeWidth={1.5} dot={DOT} />}
+              {visible.messages && <Line yAxisId="right" type="monotone" dataKey="messages" stroke="#F97316" strokeWidth={1.5} strokeDasharray="4 3" dot={DOT} />}
             </ComposedChart>
           </ResponsiveContainer>
         </div>

@@ -1,6 +1,5 @@
 """Iteration 2: multi-user, model, wiki, instructions tests."""
 import os
-import pytest
 import requests
 
 BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL") or "https://cronos-tiempo.preview.emergentagent.com").rstrip("/")

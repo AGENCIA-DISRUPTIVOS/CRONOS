@@ -1,12 +1,13 @@
 """Comprehensive backend tests for Cronos Disruptivos."""
 import os
-import pytest
 import requests
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://cronos-tiempo.preview.emergentagent.com").rstrip("/")
-ADMIN_TOKEN = "test_session_e1"
-VIEWER_TOKEN = "test_session_viewer"
-CRON_SECRET = "307601fe7a97256d0014ba46598846caa5ccae6217192646"
+ADMIN_TOKEN = os.environ.get("TEST_ADMIN_TOKEN", "test_session_e1")
+VIEWER_TOKEN = os.environ.get("TEST_VIEWER_TOKEN", "test_session_viewer")
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+CRON_SECRET = os.environ["WEBHOOK_CRON_SECRET"]
 API = f"{BASE_URL}/api"
 
 

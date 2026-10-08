@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 
 const Ctx = createContext(null);
@@ -27,16 +27,14 @@ export function AuthProvider({ children }) {
     refresh();
   }, [refresh]);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     await api.post("/auth/logout");
     setUser(null);
-  };
+  }, []);
 
-  return (
-    <Ctx.Provider value={{ user, loading, refresh, setUser, logout, isAdmin: user?.role === "admin" }}>
-      {children}
-    </Ctx.Provider>
-  );
+  const value = useMemo(() => ({ user, loading, refresh, setUser, logout, isAdmin: user?.role === "admin" }), [user, loading, refresh, logout]);
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export const useAuth = () => useContext(Ctx);

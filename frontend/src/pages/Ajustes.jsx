@@ -45,12 +45,12 @@ function SettingsForm({ settings, onSaved }) {
   );
 }
 
+const PH = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "otra"];
+
 function PhaseGoals({ settings, onSaved }) {
-  const PH = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "otra"];
   const [goals, setGoals] = useState({});
   useEffect(() => {
     if (settings) setGoals(Object.fromEntries(PH.map((p) => [p, settings.phase_goals?.[p] ?? ""])));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings]);
   const save = async (e) => {
     e.preventDefault();
@@ -271,7 +271,7 @@ function AuditLog() {
       <div className="mono-label mb-2">Auditoría · últimas acciones</div>
       <div className="max-h-72 space-y-1 overflow-y-auto font-mono text-[11px]">
         {log.map((a, i) => (
-          <div key={i} className="flex gap-2 border-t border-border/50 py-1 text-slate-400">
+          <div key={`${a.at}-${a.action}-${i}`} className="flex gap-2 border-t border-border/50 py-1 text-slate-400">
             <span className="shrink-0 text-slate-600">{a.at?.slice(0, 16).replace("T", " ")}</span>
             <span className="shrink-0 text-mint">{a.action}</span>
             <span className="truncate">{a.who} · {a.detail}</span>

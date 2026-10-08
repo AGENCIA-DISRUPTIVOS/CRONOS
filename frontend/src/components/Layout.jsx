@@ -1,4 +1,5 @@
 import { NavLink, useNavigate } from "react-router-dom";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LogOut, AlertTriangle, LayoutDashboard, ListTodo, Scale, Settings, Users, BookOpen, CircleHelp } from "lucide-react";
 import { api } from "@/lib/api";
@@ -20,6 +21,7 @@ export function Layout({ children }) {
   const navigate = useNavigate();
   const { data: budget } = useQuery({ queryKey: ["budget"], queryFn: () => api.get("/cronos/budget").then((r) => r.data) });
   const warn = budget?.pct != null && budget.pct >= 80;
+  const nav = useMemo(() => NAV.filter((n) => !n.admin || isAdmin), [isAdmin]);
 
   return (
     <div className="min-h-screen">
@@ -30,7 +32,7 @@ export function Layout({ children }) {
             <span className="hidden font-display text-base font-bold tracking-tight md:inline">· Cronos</span>
           </div>
           <nav className="flex items-center gap-0.5 sm:gap-1">
-            {NAV.filter((n) => !n.admin || isAdmin).map(({ to, label, icon: Icon, id }) => (
+            {nav.map(({ to, label, icon: Icon, id }) => (
               <NavLink
                 key={to}
                 to={to}

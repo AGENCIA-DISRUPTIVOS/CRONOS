@@ -11,8 +11,8 @@ import pytest
 import requests
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL").rstrip("/")
-ADMIN_TOKEN = "test_session_e1"
-VIEWER_TOKEN = "test_session_viewer"
+ADMIN_TOKEN = os.environ.get("TEST_ADMIN_TOKEN", "test_session_e1")
+VIEWER_TOKEN = os.environ.get("TEST_VIEWER_TOKEN", "test_session_viewer")
 
 
 @pytest.fixture(scope="module")
