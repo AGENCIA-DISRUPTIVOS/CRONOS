@@ -120,6 +120,15 @@ function SyncSources() {
     await api.delete(`/cronos/sync/sources/${s.id}`);
     qc.invalidateQueries({ queryKey: ["sync-status"] });
   };
+  const setToken = async (s) => {
+    const token = window.prompt(`Clave de sincronización para «${s.name}»`, "");
+    if (!token) return;
+    try {
+      await api.patch(`/cronos/sync/sources/${s.id}`, { token });
+      toast.success("Clave actualizada · pulsa «Actualizar» en el panel para sincronizar");
+      qc.invalidateQueries({ queryKey: ["sync-status"] });
+    } catch (err) { toast.error(errMsg(err)); }
+  };
   const sources = data?.sources || [];
   const last = data?.last_sync;
   return (
@@ -144,7 +153,11 @@ function SyncSources() {
                 <tr key={s.id} data-testid={`sync-source-row-${s.id}`}>
                   <td className="td text-sm">{s.name}</td>
                   <td className="td font-mono text-[11px] text-slate-400">{s.base_url}</td>
-                  <td className="td font-mono text-[11px]">{s.has_token ? s.token : <span className="text-amber-300">sin token</span>}</td>
+                  <td className="td font-mono text-[11px]">
+                    <button data-testid={`sync-source-token-${s.id}`} className="underline-offset-2 hover:underline" onClick={() => setToken(s)} title="Cambiar clave">
+                      {s.has_token ? s.token : <span className="text-amber-300">sin clave · pulsa para añadir</span>}
+                    </button>
+                  </td>
                   <td className="td text-xs">{s.project || "—"}</td>
                   <td className="td font-mono text-[11px]">{r ? (r.ok ? <span className="text-mint">{r.entries} tareas · {r.statements} extractos · {r.wiki + r.wiki_auto} wiki</span> : <span className="text-red-400" title={r.error}>error: {r.error?.slice(0, 60)}</span>) : <span className="text-slate-600">nunca</span>}</td>
                   <td className="td"><button className="btn-ghost hover:text-red-400" data-testid={`sync-source-delete-${s.id}`} onClick={() => remove(s)}><Trash2 size={14} /></button></td>

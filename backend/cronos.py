@@ -975,6 +975,8 @@ async def fetch_source(src: dict) -> dict:
     payload: dict = {"entries": [], "statements": [], "wiki": []}
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as c:
         r = await c.get(f"{base}/api/cronos/export.json", headers=headers)
+        if r.status_code in (401, 403):
+            raise ValueError("La app remota ha rechazado la clave de sincronización (401/403). Revisa el token de la fuente")
         if r.status_code == 200 and isinstance(r.json(), dict):
             data = r.json()
             for k in payload:
@@ -983,6 +985,8 @@ async def fetch_source(src: dict) -> dict:
         r = await c.get(f"{base}/api/cronos/entries", headers=headers)
         if r.status_code in (401, 403):
             raise ValueError("La app remota ha rechazado el token (401/403)")
+        if r.status_code == 404:
+            raise ValueError("La app remota no expone /api/cronos/export.json ni /api/cronos/entries. Pide a su agente que añada el endpoint de exportación")
         r.raise_for_status()
         payload["entries"] = r.json() if isinstance(r.json(), list) else (r.json().get("items") or [])
         for k in ("statements", "wiki"):
@@ -1059,6 +1063,33 @@ async def add_sync_source(body: SyncSourceIn, request: Request, user=Depends(req
     await set_setting("sync_sources", sources)
     await audit(user["email"], "sync_source_add", d["id"], d["name"], request)
     return mask_source(d)
+
+
+class SyncSourcePatch(BaseModel):
+    name: Optional[str] = None
+    base_url: Optional[str] = None
+    token: Optional[str] = None
+    project: Optional[str] = None
+    default_user: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+@router.patch("/sync/sources/{source_id}")
+async def patch_sync_source(source_id: str, body: SyncSourcePatch, request: Request, user=Depends(require_admin)):
+    s = await get_settings()
+    sources = list(s.get("sync_sources") or [])
+    idx = next((i for i, x in enumerate(sources) if x.get("id") == source_id), None)
+    if idx is None:
+        raise HTTPException(404, "Fuente no encontrada")
+    changes = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "base_url" in changes:
+        changes["base_url"] = changes["base_url"].rstrip("/")
+        if not changes["base_url"].startswith("https://"):
+            raise HTTPException(422, "La URL debe empezar por https://")
+    sources[idx] = {**sources[idx], **changes}
+    await set_setting("sync_sources", sources)
+    await audit(user["email"], "sync_source_update", source_id, ", ".join(changes), request)
+    return mask_source(sources[idx])
 
 
 @router.delete("/sync/sources/{source_id}")
