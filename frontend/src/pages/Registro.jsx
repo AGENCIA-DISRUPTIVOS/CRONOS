@@ -6,7 +6,7 @@ import { BookOpen, Download, Pencil, Plus, Trash2, Wand2 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { api, cleanParams, errMsg } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
-import { fmtCredits, fmtDate, fmtEur } from "@/lib/format";
+import { fmtCredits, fmtDate, fmtEur, fmtTokens } from "@/lib/format";
 import { EMPTY_FILTERS, FiltersBar } from "@/components/FiltersBar";
 import { SourceBadge } from "@/components/SourceBadge";
 import { EntryDialog } from "@/components/EntryDialog";
@@ -86,7 +86,7 @@ export default function Registro() {
     URL.revokeObjectURL(url);
   };
 
-  const totals = entries.reduce((a, e) => ({ credits: a.credits + e.credits, minutes: a.minutes + e.minutes, messages: a.messages + e.messages }), { credits: 0, minutes: 0, messages: 0 });
+  const totals = entries.reduce((a, e) => ({ credits: a.credits + e.credits, minutes: a.minutes + e.minutes, messages: a.messages + e.messages, tokens: a.tokens + (e.tokens_in || 0) + (e.tokens_out || 0) }), { credits: 0, minutes: 0, messages: 0, tokens: 0 });
 
   return (
     <div className="space-y-4" data-testid="registro-page">
@@ -104,17 +104,17 @@ export default function Registro() {
       <FiltersBar filters={filters} setFilters={setFilters} meta={meta} />
 
       <div className="panel overflow-x-auto">
-        <table className="w-full min-w-[1180px] border-collapse" data-testid="records-table">
+        <table className="w-full min-w-[1260px] border-collapse" data-testid="records-table">
           <thead>
             <tr>
               <th className="th">Fecha</th><th className="th">Título</th><th className="th">Proyecto</th><th className="th">Usuario</th><th className="th">Modelo</th><th className="th">Tipo</th><th className="th">Fase</th>
-              <th className="th text-right">Min</th><th className="th text-right">Msg</th><th className="th text-right">Créditos</th><th className="th text-right">€</th><th className="th">Origen</th>
+              <th className="th text-right">Min</th><th className="th text-right">Msg</th><th className="th text-right">Tokens</th><th className="th text-right">Créditos</th><th className="th text-right">€</th><th className="th">Origen</th>
               <th className="th" />
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td className="td font-mono text-xs text-slate-500" colSpan={13}>cargando…</td></tr>}
-            {!isLoading && entries.length === 0 && <tr><td className="td font-mono text-xs text-slate-500" colSpan={13} data-testid="records-empty">Sin entradas para estos filtros</td></tr>}
+            {isLoading && <tr><td className="td font-mono text-xs text-slate-500" colSpan={14}>cargando…</td></tr>}
+            {!isLoading && entries.length === 0 && <tr><td className="td font-mono text-xs text-slate-500" colSpan={14} data-testid="records-empty">Sin entradas para estos filtros</td></tr>}
             {entries.map((e) => (
               <tr key={e.id} className="group transition-colors hover:bg-surface-subtle/60" data-testid={`record-row-${e.id}`}>
                 <td className="td whitespace-nowrap font-mono text-xs text-slate-400">{fmtDate(e.date)}</td>
@@ -122,13 +122,19 @@ export default function Registro() {
                   <div className="truncate text-slate-100" title={e.title}>{e.title}</div>
                   {e.notes && <div className="truncate text-[11px] text-slate-500" title={e.notes}>{e.notes}</div>}
                 </td>
-                <td className="td text-xs text-slate-300">{e.project || "—"}</td>
+                <td className="td text-xs text-slate-300">
+                  {e.project || "—"}
+                  {e.app && e.app !== e.project && <div className="text-[10px] text-slate-500">{e.app}</div>}
+                </td>
                 <td className="td font-mono text-[11px] text-slate-400" title={e.user}>{(e.user || "—").split("@")[0]}</td>
                 <td className="td font-mono text-[11px] text-slate-300">{e.model || "—"}</td>
                 <td className="td font-mono text-xs">{e.type}</td>
                 <td className="td font-mono text-xs">{e.phase}</td>
                 <td className="td text-right font-mono text-xs">{e.minutes}</td>
                 <td className="td text-right font-mono text-xs">{e.messages}</td>
+                <td className="td text-right font-mono text-[11px] text-slate-300" title={`${e.tokens_in || 0} entrada · ${e.tokens_out || 0} salida${e.tokens_estimated === false ? "" : " (estimados)"}`}>
+                  {e.tokens_in || e.tokens_out ? fmtTokens((e.tokens_in || 0) + (e.tokens_out || 0)) : "—"}
+                </td>
                 <td className="td text-right font-mono text-sm font-semibold text-mint">
                   {fmtCredits(e.credits)}
                   {e.estimated_credits != null && e.source === "confirmado" && <div className="text-[10px] font-normal text-slate-500">est. {fmtCredits(e.estimated_credits)}</div>}
@@ -155,6 +161,7 @@ export default function Registro() {
                 <td className="td font-mono text-xs text-slate-400" colSpan={7}>{entries.length} entradas</td>
                 <td className="td text-right font-mono text-xs">{totals.minutes}</td>
                 <td className="td text-right font-mono text-xs">{totals.messages}</td>
+                <td className="td text-right font-mono text-[11px]">{fmtTokens(totals.tokens)}</td>
                 <td className="td text-right font-mono text-sm font-bold text-mint">{fmtCredits(totals.credits)}</td>
                 <td className="td text-right font-mono text-xs">{fmtEur(totals.credits * price)}</td>
                 <td className="td" colSpan={2} />

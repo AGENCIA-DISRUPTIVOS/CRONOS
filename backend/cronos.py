@@ -28,10 +28,18 @@ DEFAULT_MODELS = ["Claude Fable 5.1", "Claude Sonnet 4.5", "Claude Opus 4.1", "G
 DEFAULT_SETTINGS = {"price_per_credit_eur": 0.01, "monthly_budget_credits": 5000, "alerts_sent": {}, "phase_goals": {}, "models": DEFAULT_MODELS,
                     "sync_sources": [], "last_sync": None}
 ENTRY_FIELDS = ["title", "project", "type", "phase", "date", "minutes", "messages", "credits",
-                "source", "notes", "estimated_credits", "user", "model"]
+                "source", "notes", "estimated_credits", "user", "model",
+                "tokens_in", "tokens_out", "cost_eur", "tokens_estimated", "app", "summary", "external_id", "channel"]
+UNASSIGNED_USER = "sin asignar"
+ID_NAMESPACE = uuid.UUID("5f0c2f4e-8f55-4c0e-9d57-2c2f7b6d1a10")
 NO_ID = {"_id": 0}
 
 router = APIRouter(prefix="/api/cronos")
+
+
+def entry_uid(project: str, external_id: str) -> str:
+    """Id estable de una tarea: el mismo por push y por pull, así nunca se duplica entre canales."""
+    return str(uuid.uuid5(ID_NAMESPACE, f"{(project or '').strip().casefold()}:{external_id}"))
 
 
 def now_iso() -> str:
@@ -128,14 +136,20 @@ def agg(entries: list, key: str, price: float) -> list:
     out: dict = {}
     for e in entries:
         k = e.get(key) or "—"
-        a = out.setdefault(k, {"key": k, "count": 0, "credits": 0.0, "minutes": 0, "messages": 0})
+        a = out.setdefault(k, {"key": k, "count": 0, "credits": 0.0, "minutes": 0, "messages": 0,
+                               "tokens_in": 0, "tokens_out": 0, "declared_cost_eur": 0.0})
         a["count"] += 1
         a["credits"] += float(e.get("credits") or 0)
         a["minutes"] += int(e.get("minutes") or 0)
         a["messages"] += int(e.get("messages") or 0)
+        a["tokens_in"] += int(e.get("tokens_in") or 0)
+        a["tokens_out"] += int(e.get("tokens_out") or 0)
+        a["declared_cost_eur"] += float(e.get("cost_eur") or 0)
     for a in out.values():
         a["credits"] = round(a["credits"], 2)
         a["cost_eur"] = round(a["credits"] * price, 2)
+        a["tokens"] = a["tokens_in"] + a["tokens_out"]
+        a["declared_cost_eur"] = round(a["declared_cost_eur"], 4)
     return sorted(out.values(), key=lambda x: -x["credits"])
 
 
@@ -144,6 +158,9 @@ def compute_stats(entries: list, price: float) -> dict:
     credits = round(sum(float(e.get("credits") or 0) for e in entries), 2)
     minutes = sum(int(e.get("minutes") or 0) for e in entries)
     messages = sum(int(e.get("messages") or 0) for e in entries)
+    tokens_in = sum(int(e.get("tokens_in") or 0) for e in entries)
+    tokens_out = sum(int(e.get("tokens_out") or 0) for e in entries)
+    declared_cost = round(sum(float(e.get("cost_eur") or 0) for e in entries), 4)
 
     def block(lst):
         c = round(sum(float(e.get("credits") or 0) for e in lst), 2)
@@ -170,6 +187,8 @@ def compute_stats(entries: list, price: float) -> dict:
     return {
         "count": n, "credits": credits, "cost_eur": round(credits * price, 2),
         "minutes": minutes, "hours": round(minutes / 60, 2), "messages": messages,
+        "tokens_in": tokens_in, "tokens_out": tokens_out, "tokens": tokens_in + tokens_out,
+        "declared_cost_eur": declared_cost,
         "avg_credits_per_task": round(credits / n, 2) if n else 0,
         "avg_minutes_per_task": round(minutes / n, 1) if n else 0,
         "credits_per_message": round(credits / messages, 2) if messages else 0,
@@ -179,6 +198,7 @@ def compute_stats(entries: list, price: float) -> dict:
         "by_type": agg(entries, "type", price), "by_phase": agg(entries, "phase", price),
         "by_source": agg(entries, "source", price), "daily": daily, "top": top, "monthly": monthly,
         "by_model": agg(entries, "model", price), "by_user": agg(entries, "user", price),
+        "by_app": agg(entries, "app", price),
         "price_per_credit_eur": price,
     }
 
@@ -520,10 +540,20 @@ def entry_wiki_markdown(e: dict) -> str:
     rows = [("Proyecto", e.get("project") or "—"), ("Fecha", e.get("date")), ("Tipo", e.get("type")), ("Fase", e.get("phase")),
             ("Usuario", e.get("user") or "—"), ("Modelo IA", e.get("model") or "—"), ("Minutos", e.get("minutes", 0)),
             ("Mensajes", e.get("messages", 0)), ("Créditos", e.get("credits", 0)), ("Origen", e.get("source"))]
+    if e.get("app"):
+        rows.insert(1, ("App", e["app"]))
+    if e.get("tokens_in") or e.get("tokens_out"):
+        est = " (estimados)" if e.get("tokens_estimated", True) else ""
+        rows.append(("Tokens entrada / salida", f"{int(e.get('tokens_in') or 0):,} / {int(e.get('tokens_out') or 0):,}{est}".replace(",", ".")))
+    if e.get("cost_eur"):
+        rows.append(("Coste declarado por la app", f"{float(e['cost_eur']):.4f} €"))
     table = "\n".join(f"| {k} | {v} |" for k, v in rows)
-    return (f"# {e['title']}\n\n## Resumen\nTarea importada del histórico del proyecto **{e.get('project') or '—'}**.\n\n"
+    done = (e.get("summary") or "").strip() or (
+        "_Pendiente de completar: edita este documento o usa «Documentar con IA» para describir qué se hizo, cómo usarlo y notas técnicas._")
+    intro = ("Tarea recibida de la app" if e.get("channel") == "push" else "Tarea importada del histórico del proyecto")
+    return (f"# {e['title']}\n\n## Resumen\n{intro} **{e.get('app') or e.get('project') or '—'}**.\n\n"
             f"| Campo | Valor |\n|---|---|\n{table}\n\n## Notas\n{e.get('notes') or '—'}\n\n"
-            "## Qué se ha hecho\n_Pendiente de completar: edita este documento o usa «Documentar con IA» para describir qué se hizo, cómo usarlo y notas técnicas._\n")
+            f"## Qué se ha hecho\n{done}\n")
 
 
 async def ensure_wiki_for_entry(e: dict, who: str, source: str = "importado") -> bool:
@@ -537,6 +567,18 @@ async def ensure_wiki_for_entry(e: dict, who: str, source: str = "importado") ->
 
 
 # ---------- import ----------
+def coerce_usage_fields(e: dict):
+    """Normaliza los campos de uso (tokens, coste real, app, resumen) que pueden faltar en datos antiguos."""
+    e["tokens_in"] = max(int(parse_number(str(e.get("tokens_in") or 0)) or 0), 0)
+    e["tokens_out"] = max(int(parse_number(str(e.get("tokens_out") or 0)) or 0), 0)
+    e["cost_eur"] = max(float(parse_number(str(e.get("cost_eur") or 0)) or 0), 0.0)
+    e["tokens_estimated"] = True if e.get("tokens_estimated") is None else bool(e["tokens_estimated"])
+    e["app"] = str(e.get("app") or "")
+    e["summary"] = str(e.get("summary") or "")
+    e["external_id"] = str(e.get("external_id") or "")
+    e["channel"] = str(e.get("channel") or "")
+
+
 async def import_payload(payload: dict, who: str) -> dict:
     n_e = n_s = n_w = n_auto = 0
     create_wiki = payload.get("create_wiki", True)
@@ -550,6 +592,7 @@ async def import_payload(payload: dict, who: str) -> dict:
         e["credits"] = float(e.get("credits") or 0)
         e["user"] = (e.get("user") or who or "").lower()
         e["model"] = e.get("model") or ""
+        coerce_usage_fields(e)
         if not e.get("title") or not e.get("type") or not e.get("phase") or not e.get("date"):
             raise HTTPException(422, f"Entrada #{i + 1}: faltan campos obligatorios (title, type, phase, date)")
         validate_enums(e)
@@ -595,6 +638,12 @@ class EntryIn(BaseModel):
     estimated_credits: Optional[float] = None
     user: Optional[str] = None
     model: str = ""
+    tokens_in: int = Field(ge=0, default=0)
+    tokens_out: int = Field(ge=0, default=0)
+    cost_eur: float = Field(ge=0, default=0)
+    tokens_estimated: bool = True
+    app: str = ""
+    summary: str = ""
 
 
 class EntryPatch(BaseModel):
@@ -611,6 +660,12 @@ class EntryPatch(BaseModel):
     estimated_credits: Optional[float] = None
     user: Optional[str] = None
     model: Optional[str] = None
+    tokens_in: Optional[int] = Field(ge=0, default=None)
+    tokens_out: Optional[int] = Field(ge=0, default=None)
+    cost_eur: Optional[float] = Field(ge=0, default=None)
+    tokens_estimated: Optional[bool] = None
+    app: Optional[str] = None
+    summary: Optional[str] = None
 
 
 class LineIn(BaseModel):
@@ -734,7 +789,8 @@ async def create_entry(body: EntryIn, request: Request, background: BackgroundTa
     d = body.model_dump()
     validate_enums(d)
     d["user"] = (d.get("user") or user["email"]).lower() if user["role"] == "admin" else user["email"]
-    d.update({"id": str(uuid.uuid4()), "created_by": user["email"], "created_at": now_iso(), "updated_at": now_iso()})
+    d.update({"id": str(uuid.uuid4()), "created_by": user["email"], "created_at": now_iso(), "updated_at": now_iso(),
+              "external_id": "", "channel": "manual"})
     await db.cronos_entries.insert_one(dict(d))
     await ensure_project(d["project"])
     await audit(user["email"], "entry_create", d["id"], d["title"], request)
@@ -857,11 +913,12 @@ async def export_csv(f: Filters = Depends(), user=Depends(get_current_user)):
     buf = io.StringIO()
     buf.write("\ufeff")
     w = csv.writer(buf)
-    w.writerow(["fecha", "titulo", "proyecto", "usuario", "modelo", "tipo", "fase", "minutos", "mensajes", "creditos", "coste_eur", "origen", "notas"])
+    w.writerow(["fecha", "titulo", "proyecto", "usuario", "modelo", "tipo", "fase", "minutos", "mensajes", "creditos", "coste_eur", "tokens_entrada", "tokens_salida", "coste_declarado_eur", "app", "canal", "origen", "notas"])
     for e in entries:
         c = float(e.get("credits") or 0)
         w.writerow([e.get("date"), e.get("title"), e.get("project"), e.get("user") or "", e.get("model") or "", e.get("type"), e.get("phase"), e.get("minutes"),
-                    e.get("messages"), f"{c:.2f}", f"{c * price:.2f}", e.get("source"), e.get("notes") or ""])
+                    e.get("messages"), f"{c:.2f}", f"{c * price:.2f}", e.get("tokens_in") or 0, e.get("tokens_out") or 0,
+                    f"{float(e.get('cost_eur') or 0):.4f}", e.get("app") or "", e.get("channel") or "", e.get("source"), e.get("notes") or ""])
     return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="cronos_{today_local().isoformat()}.csv"'})
 
@@ -1002,7 +1059,7 @@ async def run_sync(who: str) -> dict:
     for src in settings.get("sync_sources") or []:
         if not src.get("enabled", True):
             continue
-        item = {"name": src.get("name"), "base_url": src.get("base_url")}
+        item = {"id": src.get("id"), "name": src.get("name"), "base_url": src.get("base_url")}
         try:
             payload = await fetch_source(src)
             if src.get("project"):
@@ -1012,8 +1069,13 @@ async def run_sync(who: str) -> dict:
                     w["project"] = src["project"]
             for e in payload["entries"]:
                 e.setdefault("source", "estimado")
+                e.setdefault("channel", "pull")
+                e.setdefault("app", src.get("project") or src.get("name") or "")
                 if not e.get("user"):
-                    e["user"] = src.get("default_user") or who
+                    e["user"] = src.get("default_user") or UNASSIGNED_USER
+            for e in payload["entries"]:
+                if e.get("external_id"):
+                    e["id"] = entry_uid(e.get("project") or "", str(e["external_id"]))
             res = await import_payload(payload, f"sync:{src.get('name') or src.get('base_url')}")
             item.update({"ok": True, **res, "fetched": len(payload["entries"])})
         except Exception as ex:

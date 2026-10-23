@@ -7,6 +7,7 @@ import { api, errMsg } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { fmtCredits, fmtEur } from "@/lib/format";
 import { Light } from "@/components/SourceBadge";
+import { ConnectedApps } from "@/components/ConnectedApps";
 
 function SettingsForm({ settings, onSaved }) {
   const [form, setForm] = useState({ price_per_credit_eur: "", monthly_budget_credits: "" });
@@ -133,7 +134,7 @@ function SyncSources() {
   const last = data?.last_sync;
   return (
     <div className="panel p-4" data-testid="sync-sources-panel">
-      <div className="mono-label mb-1">Sincronización con otras apps de Emergent</div>
+      <div className="mono-label mb-1">Respaldo: sincronización diaria (pull)</div>
       <p className="mb-3 text-xs text-slate-500">Cronos descarga de cada app sus tareas (<span className="font-mono">/api/cronos/export.json</span> o <span className="font-mono">/api/cronos/entries</span> + <span className="font-mono">/statements</span> + <span className="font-mono">/wiki</span>) enviando el token como <span className="font-mono">Authorization: Bearer</span> y <span className="font-mono">X-API-Key</span>. Se ejecuta a diario a las 07:30 y con el botón «Actualizar» del panel.</p>
       <form onSubmit={add} className="mb-3 grid gap-2 md:grid-cols-[1fr_2fr_1.5fr_1fr_1fr_auto]">
         <input data-testid="sync-name-input" className="field" placeholder="Nombre (Central Disruptivos)" required value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
@@ -317,6 +318,7 @@ export default function Ajustes() {
         <PhaseGoals settings={settings} onSaved={refresh} />
         <Models settings={settings} onSaved={refresh} />
       </div>
+      <ConnectedApps />
       <SyncSources />
       <Projects projects={projects} onChange={refresh} />
       <AuditLog />

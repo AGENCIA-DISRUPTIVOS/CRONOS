@@ -75,6 +75,16 @@ Cronos **no ve** automáticamente lo que ocurre en otras apps: solo importa lo q
 
 Cronos también expone su propio `GET /api/cronos/export.json` para que otras apps puedan leer sus datos.
 
+## 10. Apps conectadas: envío directo a Cronos (push)
+Es la vía principal. La sincronización diaria de la sección 9 queda como respaldo.
+1. En **Ajustes → Apps conectadas** pulsa **Conectar app** (nombre y proyecto). Cronos genera un token propio para esa app y lo muestra **una sola vez**, junto con las instrucciones ya rellenadas con la URL y el token.
+2. Pega esas instrucciones en el primer prompt de la app en Emergent (o en sus instrucciones de agente). El agente crea un pequeño módulo y, al terminar cada tarea, envía a `POST /api/cronos/ingest`: título, usuario, tipo, fase, minutos, mensajes, créditos, **tokens de entrada y salida**, **coste en €**, modelo y un **resumen de lo implementado**.
+3. Cada envío crea o actualiza la tarea (idempotente por `external_id`) y su **ficha en la wiki**: el resumen pasa a ser «Qué se ha hecho». Si alguien edita la ficha a mano, Cronos deja de sobrescribirla.
+4. Los tokens y el coste los mide el agente de cada app (Cronos no puede leer la facturación de Emergent). Si la plataforma los muestra se usan tal cual; si no, los estima y marca «estimados». Los totales se ven en el panel (KPI Tokens, desglose por app) y en el registro.
+5. **Avisos**: si una app registrada lleva más de 3 días sin enviar, o una fuente de respaldo falla, se envía un email al responsable (`SYNC_ALERT_EMAILS`, por defecto el admin). Se puede comprobar a mano con **Revisar avisos**. El registro de llamadas del cron aparece en el mismo panel.
+6. **Rotar token**: el icono de la llave genera uno nuevo; el anterior deja de valer. **Desactivar** una app rechaza sus envíos sin borrar nada.
+
 ## Historial de cambios de este documento
+- 2026-10-23 · v3: apps conectadas con envío directo (sección 10), tokens y coste real por tarea, wiki automática desde el resumen, avisos al responsable y registro del cron.
 - 2026-10-06 · v2: sincronización con otras apps (sección 9), documento global por proyecto en la Wiki.
 - 2026-10-01 · v1: primera versión (Fase 1 + Fase 2, gráfica multi-serie, CSV, comparativa mensual, topes por fase, usuarios, modelos, wiki).

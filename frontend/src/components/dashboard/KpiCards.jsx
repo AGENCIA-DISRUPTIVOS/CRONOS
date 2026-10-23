@@ -1,4 +1,4 @@
-import { fmtCredits, fmtEur, fmtHours, fmtNum } from "@/lib/format";
+import { fmtCredits, fmtEur, fmtHours, fmtNum, fmtTokens } from "@/lib/format";
 
 export function KpiCards({ stats }) {
   const items = [
@@ -7,9 +7,10 @@ export function KpiCards({ stats }) {
     { id: "kpi-total-hours", label: "Horas", value: fmtHours(stats.minutes), sub: `${fmtNum(stats.avg_minutes_per_task, 1)} min/tarea` },
     { id: "kpi-total-tasks", label: "Tareas", value: fmtNum(stats.count), sub: `${fmtNum(stats.credits_per_minute, 2)} cr/min` },
     { id: "kpi-total-messages", label: "Mensajes", value: fmtNum(stats.messages), sub: `${fmtNum(stats.credits_per_message, 2)} cr/mensaje` },
+    { id: "kpi-total-tokens", label: "Tokens", value: fmtTokens(stats.tokens), sub: `${fmtTokens(stats.tokens_in)} ent. · ${fmtTokens(stats.tokens_out)} sal. · ${fmtEur(stats.declared_cost_eur)} decl.` },
   ];
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
       {items.map((k, i) => (
         <div key={k.id} data-testid={k.id} className="panel rise p-4" style={{ animationDelay: `${i * 60}ms` }}>
           <div className="mono-label">{k.label}</div>

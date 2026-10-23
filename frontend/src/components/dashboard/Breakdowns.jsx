@@ -49,6 +49,7 @@ export function ModelUserBreakdowns({ stats }) {
   return (
     <>
       <Bars title="Por modelo de IA" rows={rows(stats.by_model || [])} colorFor={(_, i) => PHASE_COLORS[(i + 2) % PHASE_COLORS.length]} testId="breakdown-model" />
+      <Bars title="Por app" rows={(stats.by_app || []).map((r) => ({ ...r, key: r.key === "—" ? "sin app" : r.key }))} colorFor={(_, i) => PHASE_COLORS[(i + 1) % PHASE_COLORS.length]} testId="breakdown-app" />
       <Bars title="Por usuario" rows={(stats.by_user || []).map((r) => ({ ...r, key: short(r.key) }))} colorFor={(_, i) => PHASE_COLORS[(i + 4) % PHASE_COLORS.length]} testId="breakdown-user" />
     </>
   );

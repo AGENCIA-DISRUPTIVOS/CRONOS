@@ -3,6 +3,12 @@ export const fmtNum = (n, d = 0) =>
 export const fmtCredits = (n) => fmtNum(n, Number.isInteger(Number(n)) ? 0 : 1);
 export const fmtEur = (n) =>
   new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(Number(n) || 0);
+export const fmtTokens = (n) => {
+  const v = Number(n) || 0;
+  if (v >= 1e6) return `${fmtNum(v / 1e6, 2)} M`;
+  if (v >= 1e3) return `${fmtNum(v / 1e3, 1)} k`;
+  return fmtNum(v);
+};
 export const fmtHours = (minutes) => `${fmtNum((Number(minutes) || 0) / 60, 1)} h`;
 export const fmtDate = (iso) => {
   if (!iso) return "—";

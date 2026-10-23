@@ -45,7 +45,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <Breakdowns stats={stats} phaseGoals={settings?.phase_goals} />
           </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <ModelUserBreakdowns stats={stats} />
           </div>
           <MonthlyTrend monthly={stats.monthly || []} />

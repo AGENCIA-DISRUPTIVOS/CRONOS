@@ -5,7 +5,7 @@ import { api, errMsg } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { todayIso } from "@/lib/format";
 
-const BLANK = { title: "", project: "", type: "desarrollo", phase: "otra", date: todayIso(), minutes: 0, messages: 0, credits: 0, source: "estimado", notes: "", user: "", model: "" };
+const BLANK = { title: "", project: "", type: "desarrollo", phase: "otra", date: todayIso(), minutes: 0, messages: 0, credits: 0, source: "estimado", notes: "", user: "", model: "", tokens_in: 0, tokens_out: 0, cost_eur: 0, tokens_estimated: true, app: "", summary: "" };
 
 export function EntryDialog({ open, onOpenChange, initial, meta, onSaved }) {
   const { user: me, isAdmin } = useAuth();
@@ -20,8 +20,9 @@ export function EntryDialog({ open, onOpenChange, initial, meta, onSaved }) {
   const submit = async (e) => {
     e.preventDefault();
     setSaving(true);
-    const body = { ...form, minutes: Number(form.minutes), messages: Number(form.messages), credits: Number(form.credits) };
-    delete body.id; delete body.created_at; delete body.updated_at; delete body.created_by;
+    const body = { ...form, minutes: Number(form.minutes), messages: Number(form.messages), credits: Number(form.credits),
+      tokens_in: Number(form.tokens_in) || 0, tokens_out: Number(form.tokens_out) || 0, cost_eur: Number(form.cost_eur) || 0 };
+    delete body.id; delete body.created_at; delete body.updated_at; delete body.created_by; delete body.external_id; delete body.channel;
     if (!body.user) delete body.user;
     try {
       if (isEdit) await api.patch(`/cronos/entries/${initial.id}`, body);
@@ -100,7 +101,28 @@ export function EntryDialog({ open, onOpenChange, initial, meta, onSaved }) {
               {(meta?.sources || []).map((t) => <option key={t}>{t}</option>)}
             </select>
           </Field>
-          <div className="col-span-2 sm:col-span-3">
+          <Field label="Tokens entrada">
+            <input data-testid="entry-tokens-in-input" type="number" min="0" className="field font-mono" value={form.tokens_in} onChange={(e) => set("tokens_in", e.target.value)} />
+          </Field>
+          <Field label="Tokens salida">
+            <input data-testid="entry-tokens-out-input" type="number" min="0" className="field font-mono" value={form.tokens_out} onChange={(e) => set("tokens_out", e.target.value)} />
+          </Field>
+          <Field label="Coste real (€)">
+            <input data-testid="entry-cost-eur-input" type="number" min="0" step="0.0001" className="field font-mono" value={form.cost_eur} onChange={(e) => set("cost_eur", e.target.value)} />
+          </Field>
+          <Field label="App">
+            <input data-testid="entry-app-input" className="field" value={form.app || ""} onChange={(e) => set("app", e.target.value)} />
+          </Field>
+          <label className="col-span-2 flex items-center gap-2 sm:col-span-4">
+            <input data-testid="entry-tokens-estimated-input" type="checkbox" checked={form.tokens_estimated !== false} onChange={(e) => set("tokens_estimated", e.target.checked)} />
+            <span className="text-xs text-slate-400">Tokens estimados (desmarca si son los exactos de la plataforma)</span>
+          </label>
+          <div className="col-span-2 sm:col-span-4">
+            <Field label="Resumen de lo implementado (alimenta la wiki)">
+              <textarea data-testid="entry-summary-input" className="field h-24 resize-y py-2 text-sm" value={form.summary || ""} onChange={(e) => set("summary", e.target.value)} />
+            </Field>
+          </div>
+          <div className="col-span-2 sm:col-span-4">
             <Field label="Notas">
               <input data-testid="entry-notes-input" className="field" value={form.notes || ""} onChange={(e) => set("notes", e.target.value)} />
             </Field>
